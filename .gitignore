@@ -1,0 +1,9 @@
+# Anchored to the root: git on Windows ignores case, so a bare "dist/" also hides Shared/Dist.
+/build/
+/dist/
+.vs/
+.vscode/
+.idea/
+.claude/
+*.user
+.DS_Store
