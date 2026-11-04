@@ -321,7 +321,7 @@ namespace cdaw
             }
 
             // RT60 line: how long each frequency rings.
-            if (! model.value (CVerbParameters::freeze) >= 0.5f)
+            if (model.value (CVerbParameters::freeze) < 0.5f)
             {
                 juce::Path rt;
                 for (float x = p.getX(); x <= p.getRight(); x += 2.0f)
