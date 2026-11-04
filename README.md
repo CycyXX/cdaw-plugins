@@ -71,7 +71,7 @@ On Windows, if the clone stops with "Filename too long", use a shorter folder or
 
 | System | Configure and build | Plugins end up in |
 |---|---|---|
-| Windows (Visual Studio 2022 with C++) | `cmake --preset windows` then `cmake --build --preset windows` | `build/windows/VST3/*/*_artefacts/Release/VST3` |
+| Windows (Visual Studio 2022 or newer, with C++) | `cmake --preset windows` then `cmake --build --preset windows` | `build/windows/VST3/*/*_artefacts/Release/VST3` |
 | macOS (Xcode command line tools) | `cmake --preset macos` then `cmake --build --preset macos -j8` | `build/macos/VST3/*/*_artefacts/Release/{VST3,AU}` |
 | Linux | `cmake --preset linux` then `cmake --build --preset linux -j8` | `build/linux/VST3/*/*_artefacts/Release/VST3` |
 

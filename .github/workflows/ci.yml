@@ -25,7 +25,7 @@ jobs:
           - { name: linux, os: ubuntu-24.04, tests: xvfb-run -a build/linux/tests/cdaw_plugins_tests_artefacts/Release/cdaw_plugins_tests, config: Release }
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           submodules: true
 
@@ -57,17 +57,34 @@ jobs:
           curl -sSL -o pluginval.zip "https://github.com/Tracktion/pluginval/releases/latest/download/$asset"
           unzip -q pluginval.zip
           status=0
+          count=0
+          summary=""
           for plugin in build/${{ matrix.name }}/VST3/*/*_artefacts/Release/VST3/*.vst3; do
             echo "::group::$plugin"
-            $pre $exe --strictness-level 5 --validate-in-process --timeout-ms 300000 "$plugin" || { echo "::error::pluginval failed on $plugin"; status=1; }
+            start=$SECONDS
+            if $pre $exe --strictness-level 5 --validate-in-process --timeout-ms 300000 "$plugin" | tee pluginval.log; then
+              result=passed
+            else
+              result=FAILED
+              echo "::error::pluginval failed on $plugin"
+              status=1
+            fi
             echo "::endgroup::"
+            count=$((count + 1))
+            summary="$summary $(basename "$plugin" .vst3) $result $((SECONDS - start))s $(wc -l < pluginval.log | tr -d ' ') lines,"
           done
+          # Readable without logging in, unlike the log itself.
+          echo "::notice::pluginval on $count plugins:$summary"
+          if [ "$count" -ne 11 ]; then
+            echo "::error::Expected 11 plugins, found $count"
+            status=1
+          fi
           exit $status
 
       - name: Package
         run: python scripts/package.py build/${{ matrix.name }} ${{ matrix.config }} ${{ matrix.name }}
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: cdaw-plugins-${{ matrix.name }}
           path: dist/cdaw-plugins-${{ matrix.name }}.zip
@@ -80,7 +97,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           merge-multiple: true
 
