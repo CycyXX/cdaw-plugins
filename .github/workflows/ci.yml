@@ -39,6 +39,8 @@ jobs:
       SCCACHE_GHA_ENABLED: ${{ !startsWith(github.ref, 'refs/tags/') }}
       # If the cache service has a problem, compile normally instead of failing the build.
       SCCACHE_IGNORE_SERVER_IO_ERROR: "1"
+      # macOS builds for two architectures at once, which sccache only caches when asked.
+      SCCACHE_CACHE_MULTIARCH: "1"
 
     steps:
       - name: See whether any code changed
@@ -112,7 +114,8 @@ jobs:
             macOS)   asset=pluginval_macOS.zip;   exe=./pluginval.app/Contents/MacOS/pluginval; pre= ;;
             Linux)   asset=pluginval_Linux.zip;   exe=./pluginval; pre="xvfb-run -a" ;;
           esac
-          curl -sSL -o pluginval.zip "https://github.com/Tracktion/pluginval/releases/latest/download/$asset"
+          # Retry, so a brief problem on GitHub's download servers doesn't fail a required check.
+          curl -fsSL --retry 5 --retry-all-errors -o pluginval.zip "https://github.com/Tracktion/pluginval/releases/latest/download/$asset"
           unzip -q pluginval.zip
           status=0
           count=0
