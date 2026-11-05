@@ -20,7 +20,8 @@ git commit -s -m "C-Delay: fix the echo map at very short times"
 See [Build](README.md#build). Before opening a pull request, run `cdaw_plugins_tests` and try your change in a host.
 
 CI builds every plugin on Windows, macOS and Linux, runs the tests, and runs
-[pluginval](https://github.com/Tracktion/pluginval) on each VST3.
+[pluginval](https://github.com/Tracktion/pluginval) on each VST3. A pull request that only changes docs skips
+the build.
 
 ## Three rules that protect people's projects
 
