@@ -1,5 +1,5 @@
 # Windows: builds every plugin from this checkout and installs the VST3s where Cubase and other hosts scan.
-#   .\scripts\install.ps1
+#   .\scripts\install.ps1          (or double-click Install-Plugins.bat)
 # Close the hosts first: they keep loaded plugins locked. Exits with 1 if any plugin isn't the build just made.
 #
 # The folder needs admin rights, so Windows asks once, unless you have made the folder writable. If you decline,
