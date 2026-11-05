@@ -41,12 +41,43 @@
       "binaryDir": "${sourceDir}/build/${presetName}",
       "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" },
       "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux" }
+    },
+    {
+      "name": "ci-windows",
+      "displayName": "Windows (Ninja, MSVC, Release, with sccache, for CI)",
+      "inherits": "ninja-msvc-relwithdebinfo",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_C_COMPILER_LAUNCHER": "sccache",
+        "CMAKE_CXX_COMPILER_LAUNCHER": "sccache"
+      }
+    },
+    {
+      "name": "ci-macos",
+      "displayName": "macOS (universal, Release, with sccache, for CI)",
+      "inherits": "macos",
+      "cacheVariables": {
+        "CMAKE_C_COMPILER_LAUNCHER": "sccache",
+        "CMAKE_CXX_COMPILER_LAUNCHER": "sccache"
+      }
+    },
+    {
+      "name": "ci-linux",
+      "displayName": "Linux (Release, with sccache, for CI)",
+      "inherits": "linux",
+      "cacheVariables": {
+        "CMAKE_C_COMPILER_LAUNCHER": "sccache",
+        "CMAKE_CXX_COMPILER_LAUNCHER": "sccache"
+      }
     }
   ],
   "buildPresets": [
     { "name": "windows", "configurePreset": "windows", "configuration": "Release" },
     { "name": "ninja-msvc-relwithdebinfo", "configurePreset": "ninja-msvc-relwithdebinfo" },
     { "name": "macos", "configurePreset": "macos" },
-    { "name": "linux", "configurePreset": "linux" }
+    { "name": "linux", "configurePreset": "linux" },
+    { "name": "ci-windows", "configurePreset": "ci-windows", "jobs": 4 },
+    { "name": "ci-macos", "configurePreset": "ci-macos", "jobs": 4 },
+    { "name": "ci-linux", "configurePreset": "ci-linux", "jobs": 4 }
   ]
 }
