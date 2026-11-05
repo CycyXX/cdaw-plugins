@@ -79,6 +79,10 @@ On Linux, first install JUCE's dependencies; [the CI workflow](.github/workflows
 
 Run the tests with the `cdaw_plugins_tests` program, in `build/<preset>/tests/cdaw_plugins_tests_artefacts/`.
 
+On Windows, `.\scripts\install.ps1` builds every plugin from your checkout and installs the VST3s in
+`C:\Program Files\Common Files\VST3\CDAW`. Close your hosts first, as they keep loaded plugins locked, then rescan
+plugins in them. It warns you if what it installed isn't the latest `main`.
+
 To change something, see [CONTRIBUTING](CONTRIBUTING.md).
 
 ## How the code is laid out
