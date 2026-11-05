@@ -206,6 +206,9 @@ namespace cdaw
             std::atomic<float> seconds { 0.0f }, releasedAt { -1.0f };
         };
 
+        /** The key the mouse is holding on the UI's keyboard, or -1. The UI writes it; each block plays it as if it came by MIDI. */
+        std::atomic<int> mouseKey { -1 };
+
         std::array<VoiceView, maxVoices> voiceViews;
         std::array<std::atomic<float>, numLfos> lfoValue {}, lfoPhase {};
         std::array<std::atomic<float>, numSlots> slotValue {};
@@ -296,6 +299,7 @@ namespace cdaw
         };
 
         void handleMidi (const juce::MidiMessage&, const Settings&);
+        void applyMouseKey (const Settings&);
         void noteOn (int note, float velocity, const Settings&);
         void noteOff (int note, const Settings&);
         int chooseHeldNote (const Settings&) const;
@@ -318,6 +322,7 @@ namespace cdaw
         EnvelopeCoefficients ampCoefficients, modCoefficients;
         std::array<Voice, maxVoices> voices;
         juce::uint32 noteCounter = 0;
+        int mouseKeyPlaying = -1;                   // the key applyMouseKey last played
         double lastPitch = -1.0;
         std::vector<int> heldNotes;
 

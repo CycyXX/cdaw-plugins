@@ -401,6 +401,8 @@ namespace cdaw::test
                         view.tick();
                     finish (view, name);
                 }
+
+                clickKeyboard<VoiceField> (view, engine);
             }
 
             {
@@ -442,9 +444,41 @@ namespace cdaw::test
                         view.tick();
                     finish (view, name);
                 }
+
+                clickKeyboard<LeadUI::VoiceField> (view, engine);
             }
 
             juce::LookAndFeel::setDefaultLookAndFeel (nullptr);
+        }
+
+        /** A click on the footer's keyboard in a whole view: it reaches the keyboard, holds a key, and lets go. */
+        template <typename Field, typename Engine>
+        void clickKeyboard (juce::Component& view, Engine& engine)
+        {
+            Field* field = nullptr;
+            for (auto* child : view.getChildren())
+                if (auto* f = dynamic_cast<Field*> (child))
+                    field = f;
+
+            expect (field != nullptr, "the view has a keyboard");
+            if (field == nullptr)
+                return;
+
+            const juce::Point<float> at ((float) field->getWidth() * 0.5f, (float) field->getHeight() - 8.0f);
+            view.setVisible (true);     // a hidden component is never under the mouse
+            expect (view.getComponentAt (view.getLocalPoint (field, at).toInt()) == field, "nothing covers the keyboard");
+
+            const auto now = juce::Time::getCurrentTime();
+            const juce::MouseEvent click (juce::Desktop::getInstance().getMainMouseSource(), at, juce::ModifierKeys::leftButtonModifier,
+                                          1.0f, 0.0f, 0.0f, 0.0f, 0.0f, field, field, now, at, now, 1, false);
+
+            field->mouseDown (click);
+            expect (juce::isPositiveAndBelow (engine.mouseKey.load() - MiniKeyboard::lowestKey, MiniKeyboard::highestKey - MiniKeyboard::lowestKey + 1), "a key is held");
+
+            field->mouseUp (click);
+            juce::Thread::sleep ((int) MiniKeyboard::MousePlayer::minimumHoldMs + 20);
+            field->refresh();
+            expectEquals (engine.mouseKey.load(), -1, "and released");
         }
 
         void finish (juce::Component& view, const juce::String& name)

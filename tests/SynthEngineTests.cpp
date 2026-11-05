@@ -1,5 +1,6 @@
 #include "TestSupport.h"
 #include "Shared/Synth/SynthPresets.h"
+#include "Shared/UI/MiniKeyboard.h"
 #include <complex>
 
 namespace cdaw::test
@@ -328,6 +329,81 @@ namespace cdaw::test
                 expectWithinAbsoluteError (frequency (glide, 0.8, 0.95), 440.0, 0.2, "it glided up to the second key");
                 const auto during = frequency (glide, 0.5, 0.53);
                 expect (during > 225.0 && during < 435.0, "on the way: " + juce::String (during, 1) + " Hz");
+            }
+
+            beginTest ("The UI keyboard: a held mouse key plays, moves and releases like a MIDI note");
+            {
+                SynthEngine engine;
+                auto s = plain();
+
+                // Press A4 after the first block, drag to A5 at 0.5 s, let go at 1 s.
+                auto out = play (engine, s, {}, 1.4, {}, [&engine] (int block)
+                {
+                    if (block == 0)     engine.mouseKey = 69;
+                    if (block == 47)    engine.mouseKey = 81;
+                    if (block == 94)    engine.mouseKey = -1;
+                });
+
+                expectWithinAbsoluteError (frequency (out, 0.1, 0.45), 440.0, 0.1);
+                expectWithinAbsoluteError (frequency (out, 0.6, 0.95), 880.0, 0.2);
+                expectLessThan (rmsDb (out, 1.3, 1.39), -100.0f, "released");
+                expectEquals (engine.activeVoices.load(), 0);
+
+                // A key held across a reset sounds again.
+                juce::AudioBuffer<float> buffer (2, 512);
+                juce::MidiBuffer midi;
+                engine.mouseKey = 60;
+                engine.process (buffer, 0, 512, midi, s, 120.0);
+                expectEquals (engine.activeVoices.load(), 1);
+                engine.reset();
+                engine.process (buffer, 0, 512, midi, s, 120.0);
+                expectEquals (engine.activeVoices.load(), 1);
+            }
+
+            beginTest ("The UI keyboard: each key is where it's drawn, and a quick click still sounds");
+            {
+                namespace K = MiniKeyboard;
+                const juce::Rectangle<float> keys (8.0f, 100.0f, 832.0f, 30.0f);
+
+                for (int k = K::lowestKey; k <= K::highestKey; ++k)
+                    expectEquals (K::keyAt (K::isBlack (k) ? K::blackKey (k, keys).getCentre()
+                                                           : juce::Point<float> (K::keyX (k, keys), keys.getBottom() - 1.0f), keys), k);
+
+                // The gap drawn after A0 belongs to it.
+                const auto a0 = K::whiteKey (21, keys);
+                expectEquals (K::keyAt ({ a0.getRight() + 0.5f, keys.getBottom() - 1.0f }, keys), 21);
+
+                // A black key wins over the white keys beside it, but only as far down as it reaches.
+                const float x = K::keyX (22, keys);
+                expectEquals (K::keyAt ({ x, keys.getY() + 1.0f }, keys), 22);
+                expectEquals (K::keyAt ({ x - 1.0f, keys.getBottom() - 1.0f }, keys), 21);
+                expectEquals (K::keyAt ({ x + 1.0f, keys.getBottom() - 1.0f }, keys), 23);
+
+                // Off the keyboard: above, below and beside it.
+                expectEquals (K::keyAt ({ 100.0f, keys.getY() - 1.0f }, keys), -1);
+                expectEquals (K::keyAt ({ 100.0f, keys.getBottom() + 1.0f }, keys), -1);
+                expectEquals (K::keyAt ({ keys.getX() - 1.0f, keys.getCentreY() }, keys), -1);
+                expectEquals (K::keyAt ({ keys.getRight() + 1.0f, keys.getCentreY() }, keys), -1);
+
+                std::atomic<int> wanted { -1 };
+                {
+                    K::MousePlayer mouse (wanted);
+                    mouse.press (60);
+                    mouse.release();
+                    expectEquals (wanted.load(), 60, "a quick click is held for a moment");
+                    juce::Thread::sleep ((int) K::MousePlayer::minimumHoldMs + 20);
+                    mouse.tick();
+                    expectEquals (wanted.load(), -1, "then released");
+
+                    mouse.press (60);
+                    mouse.press (62);
+                    expectEquals (wanted.load(), 62, "dragging moves to the next key");
+                    mouse.press (-1);
+                    expectEquals (wanted.load(), -1, "dragging off the keys lets go at once");
+
+                    mouse.press (64);
+                }
+                expectEquals (wanted.load(), -1, "closing the editor mid-click leaves no note held");
             }
 
             beginTest ("Renders repeat exactly, whatever the block size");
