@@ -626,43 +626,32 @@ namespace cdaw::LeadUI
     }
 
     //==============================================================================
-    VoiceField::VoiceField (LeadEngine& e) : engine (e)
+    VoiceField::VoiceField (LeadEngine& e) : engine (e), mouse (e.mouseKey)
     {
         setOpaque (true);
     }
 
-    bool VoiceField::isBlack (int key)
+    int VoiceField::keyAt (const juce::MouseEvent& e) const
     {
-        const int n = key % 12;
-        return n == 1 || n == 3 || n == 6 || n == 8 || n == 10;
+        return MiniKeyboard::keyAt (e.position, getLocalBounds().toFloat().reduced (8.0f, 6.0f).removeFromBottom (30.0f));
     }
 
-    float VoiceField::keyX (int key, juce::Rectangle<float> keys) const
-    {
-        int whites = 0;
-        for (int k = lowestKey; k <= highestKey; ++k)
-            if (! isBlack (k))
-                ++whites;
-
-        int index = 0;
-        for (int k = lowestKey; k < key; ++k)
-            if (! isBlack (k))
-                ++index;
-
-        const float w = keys.getWidth() / (float) whites;
-        return keys.getX() + (isBlack (key) ? (float) index * w : ((float) index + 0.5f) * w);
-    }
+    void VoiceField::mouseDown (const juce::MouseEvent& e)      { mouse.press (keyAt (e)); }
+    void VoiceField::mouseDrag (const juce::MouseEvent& e)      { mouse.press (keyAt (e)); }
+    void VoiceField::mouseUp (const juce::MouseEvent&)          { mouse.release(); }
 
     float VoiceField::pitchX (float pitch, juce::Rectangle<float> keys) const
     {
-        const float clamped = juce::jlimit ((float) lowestKey, (float) highestKey, pitch);
-        const int below = juce::jmin ((int) std::floor (clamped), highestKey - 1);
+        const float clamped = juce::jlimit ((float) MiniKeyboard::lowestKey, (float) MiniKeyboard::highestKey, pitch);
+        const int below = juce::jmin ((int) std::floor (clamped), MiniKeyboard::highestKey - 1);
         const float t = clamped - (float) below;
-        return keyX (below, keys) + (keyX (below + 1, keys) - keyX (below, keys)) * t;
+        return MiniKeyboard::keyX (below, keys) + (MiniKeyboard::keyX (below + 1, keys) - MiniKeyboard::keyX (below, keys)) * t;
     }
 
     void VoiceField::refresh()
     {
+        mouse.tick();
+
         auto bounds = getLocalBounds().toFloat().reduced (8.0f, 6.0f);
         auto keys = bounds.removeFromBottom (30.0f);
         auto field = bounds.withTrimmedTop (14.0f);
@@ -725,16 +714,10 @@ namespace cdaw::LeadUI
                 }
             }
 
-        int whites = 0;
-        for (int k = lowestKey; k <= highestKey; ++k)
-            if (! isBlack (k))
-                ++whites;
-        const float whiteW = keys.getWidth() / (float) whites;
-
-        for (int k = lowestKey; k <= highestKey; ++k)
-            if (! isBlack (k))
+        for (int k = MiniKeyboard::lowestKey; k <= MiniKeyboard::highestKey; ++k)
+            if (! MiniKeyboard::isBlack (k))
             {
-                auto key = juce::Rectangle<float> (keyX (k, keys) - whiteW * 0.5f, keys.getY(), whiteW - 1.0f, keys.getHeight());
+                auto key = MiniKeyboard::whiteKey (k, keys);
                 g.setColour (down[(size_t) k] ? pressed[(size_t) k].withAlpha (1.0f) : Palette::text.withAlpha (0.85f));
                 g.fillRoundedRectangle (key, 1.5f);
                 if (k % 12 == 0)
@@ -745,10 +728,10 @@ namespace cdaw::LeadUI
                 }
             }
 
-        for (int k = lowestKey; k <= highestKey; ++k)
-            if (isBlack (k))
+        for (int k = MiniKeyboard::lowestKey; k <= MiniKeyboard::highestKey; ++k)
+            if (MiniKeyboard::isBlack (k))
             {
-                auto key = juce::Rectangle<float> (keyX (k, keys) - whiteW * 0.32f, keys.getY(), whiteW * 0.64f, keys.getHeight() * 0.6f);
+                auto key = MiniKeyboard::blackKey (k, keys);
                 g.setColour (down[(size_t) k] ? pressed[(size_t) k].withAlpha (1.0f).darker (0.2f) : Palette::windowBackground);
                 g.fillRoundedRectangle (key, 1.5f);
             }

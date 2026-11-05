@@ -550,6 +550,35 @@ namespace cdaw::test
                 expectGreaterThan (std::sqrt (side / mid), 0.3);
             }
 
+            beginTest ("The UI keyboard: a held mouse key plays, moves and releases like a MIDI note");
+            {
+                LeadEngine engine;
+                auto s = plain();
+
+                // Press A4 after the first block, drag to A5 at 0.5 s, let go at 1 s.
+                auto out = play (engine, s, {}, 1.4, {}, [&engine] (int block)
+                {
+                    if (block == 0)     engine.mouseKey = 69;
+                    if (block == 47)    engine.mouseKey = 81;
+                    if (block == 94)    engine.mouseKey = -1;
+                });
+
+                expectWithinAbsoluteError (frequency (out, 0.1, 0.45), 440.0, 0.1);
+                expectWithinAbsoluteError (frequency (out, 0.6, 0.95), 880.0, 0.2);
+                expectLessThan (rmsDb (out, 1.3, 1.39), -100.0f, "released");
+                expectEquals (engine.activeVoices.load(), 0);
+
+                // A key held across a reset sounds again.
+                juce::AudioBuffer<float> buffer (2, 512);
+                juce::MidiBuffer midi;
+                engine.mouseKey = 60;
+                engine.process (buffer, 0, 512, midi, s, 120.0);
+                expectEquals (engine.activeVoices.load(), 1);
+                engine.reset();
+                engine.process (buffer, 0, 512, midi, s, 120.0);
+                expectEquals (engine.activeVoices.load(), 1);
+            }
+
             beginTest ("Renders repeat exactly, whatever the block size");
             {
                 LeadEngine a, b;

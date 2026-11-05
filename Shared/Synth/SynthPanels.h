@@ -3,6 +3,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 #include "SynthParameters.h"
 #include "../UI/EffectWidgets.h"
+#include "../UI/MiniKeyboard.h"
 #include "../UI/SpectrumAnalyser.h"
 #include <deque>
 
@@ -249,7 +250,8 @@ namespace cdaw
 
     //==============================================================================
     /** The footer: a keyboard with a glowing orb over each sounding key, as bright as the
-        voice is loud, coloured by how open its filter is, trailing as it fades. */
+        voice is loud, coloured by how open its filter is, trailing as it fades. Click or drag
+        along the keys to play them. */
     class VoiceField : public juce::Component
     {
     public:
@@ -258,13 +260,15 @@ namespace cdaw
         void paint (juce::Graphics&) override;
         void refresh();
 
-        static constexpr int lowestKey = 21, highestKey = 108;
+        void mouseDown (const juce::MouseEvent&) override;
+        void mouseDrag (const juce::MouseEvent&) override;
+        void mouseUp (const juce::MouseEvent&) override;
 
     private:
-        float keyX (int key, juce::Rectangle<float> keys) const;
-        static bool isBlack (int key);
+        int keyAt (const juce::MouseEvent&) const;
 
         SynthEngine& engine;
+        MiniKeyboard::MousePlayer mouse;
         struct Trail { int note = -1; std::deque<juce::Point<float>> points; };
         std::array<Trail, SynthEngine::maxVoices> trails;
     };

@@ -135,6 +135,7 @@ namespace cdaw
             v = Voice {};
 
         noteCounter = 0;
+        mouseKeyPlaying = -1;
         lastPitch = -1.0;
         heldNotes.clear();
         bend = modWheel = aftertouch = 0.0f;
@@ -205,6 +206,20 @@ namespace cdaw
                             releaseVoice (v);
             }
         }
+    }
+
+    void SynthEngine::applyMouseKey (const Settings& s)
+    {
+        const int wanted = mouseKey.load();
+        if (wanted == mouseKeyPlaying)
+            return;
+
+        if (mouseKeyPlaying >= 0)
+            noteOff (mouseKeyPlaying, s);
+        if (wanted >= 0)
+            noteOn (wanted, 0.8f, s);
+
+        mouseKeyPlaying = wanted;
     }
 
     void SynthEngine::noteOn (int note, float velocity, const Settings& s)
@@ -782,6 +797,8 @@ namespace cdaw
         const float volumeTarget = juce::Decibels::decibelsToGain (s.volumeDb, -100.0f);
         if (volume.value < 0.0f)
             volume.value = volumeTarget;
+
+        applyMouseKey (s);
 
         auto midiEvent = midi.cbegin();
 
