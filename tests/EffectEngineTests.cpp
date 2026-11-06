@@ -495,7 +495,9 @@ namespace cdaw::test
 
             beginTest ("C-Verb: level, cuts, mix");
             {
-                expectWithinAbsoluteError (gainThrough<ReverbEngine> (1000.0, plainReverb()), -3.0f, 6.0f, "1 kHz, fully wet");
+                // About +4 dB: the network is flat, its level set to match the earlier engine on
+                // broadband sound (whose diffusers put 1 kHz in a dip).
+                expectWithinAbsoluteError (gainThrough<ReverbEngine> (1000.0, plainReverb()), 3.0f, 6.0f, "1 kHz, fully wet");
 
                 auto cutAt = [] (bool pre, bool post)
                 {

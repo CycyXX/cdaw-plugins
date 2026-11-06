@@ -10,7 +10,8 @@ namespace cdaw::CVerbParameters
         the same IDs, names, ranges, defaults and display text everywhere. The IDs are stored in
         projects and presets: never change one. */
     enum ID { mix, preDelay, size, decay, diffusion, modulation, lowDecay, highDecay, dampFreq, early, width,
-              preLowCut, preHighCut, postLowCut, postHighCut, freeze, count };
+              preLowCut, preHighCut, postLowCut, postHighCut, freeze,
+              type, character, variation, pitch, duck, count };
 
     struct Spec
     {
@@ -26,6 +27,9 @@ namespace cdaw::CVerbParameters
     };
 
     const Spec& get (ID);
+
+    /** The type a value of the type parameter stands for. */
+    ReverbEngine::Type typeOf (float value);
 
     /** The engine settings for a set of parameter values (in their own units). */
     ReverbEngine::Settings toSettings (const std::function<float (ID)>& valueOf);

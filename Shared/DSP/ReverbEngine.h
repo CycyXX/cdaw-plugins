@@ -9,14 +9,24 @@
 
 namespace cdaw
 {
-    /** The reverb DSP shared by C-Verb and the simple Reverb: pre-delay -> early reflections ->
-        input diffusion -> an 8-line feedback delay network (Hadamard mixing, slowly modulated
-        delays) with separate decay times for lows, mids and highs. Low / high cuts on the signal
-        going into the reverb ("pre") and on the reverb coming out ("post"), stereo width, freeze
-        and an equal-power dry / wet mix. */
+    /** The reverb DSP shared by C-Verb and the synths' reverb: pre-delay -> early reflections
+        (which also feed the tail) -> input diffusion -> a 16-line feedback delay network (Hadamard
+        mixing, an allpass inside every line, randomly and slowly modulated delays) with separate
+        decay times for lows, mids and highs. Low / high cuts on the signal going into the reverb
+        ("pre") and on the reverb coming out ("post"), stereo width, ducking, freeze and an
+        equal-power dry / wet mix.
+
+        Types voice the network differently and add their own stage: Hall, Room and Plate are
+        spaces; Shimmer pitch-shifts part of the tail back into it; Reverse plays the tail
+        backwards in windows; Bloom swells in; Gated cuts a dense burst off; Cloud scatters the
+        tail into grains. Character and Variation are two knobs whose meaning depends on the
+        type (see getKnobNames). */
     class ReverbEngine
     {
     public:
+        enum class Type { hall, room, plate, shimmer, reverse, bloom, gated, cloud };
+        static constexpr int numTypes = 8;
+
         /** Everything the sound depends on, in plain units. */
         struct Settings
         {
@@ -33,6 +43,12 @@ namespace cdaw
             float width = 1.0f;             // 0..2
             float preLowCut = 20.0f, preHighCut = 20000.0f, postLowCut = 100.0f, postHighCut = 12000.0f;   // Hz; 20 / 20k = off
             bool freeze = false;
+
+            Type type = Type::hall;
+            float character = 0.5f;         // 0..1, the type's first knob
+            float variation = 0.5f;         // 0..1, the type's second knob
+            float pitch = 12.0f;            // semitones: Shimmer's interval, Cloud's transposed grains
+            float duck = 0.0f;              // 0..1: how far the reverb is turned down while the input plays
         };
 
         void prepare (double sampleRate, int maxBlockSize, const Settings&);
@@ -48,8 +64,27 @@ namespace cdaw
         double getSampleRate() const        { return rate; }
 
         //==============================================================================
+        static juce::StringArray getTypeNames();
+
+        /** What Character and Variation do in a type (knob labels). */
+        static std::pair<juce::String, juce::String> getKnobNames (Type);
+
+        /** Whether the pitch setting does anything in a type. */
+        static bool usesPitch (Type t)      { return t == Type::shimmer || t == Type::cloud; }
+
         /** Decay time (RT60, seconds) at a frequency, from decay and the low / high multipliers. */
         static double getDecayAt (const Settings&, double hz);
+
+        /** The level (dB, 0 = loudest) of the reverb `seconds` after the pre-delay, for a
+            frequency that rings for `rt60` seconds (from getDecayAt): its build-up, decay and the
+            type's shape (Bloom's swell, Reverse's ramp, Gated's cut). The cuts aren't included. */
+        static double getLevelDb (const Settings&, double rt60, double seconds);
+
+        /** How long the reverb can go on after the input stops (s), pre-delay included. */
+        static double getTailSeconds (const Settings&);
+
+        /** Reverse's window or Gated's hold plus release (s); 0 for the other types. */
+        static double getShapeSeconds (const Settings&);
 
         /** Combined response (dB) of the pre or post cuts at a frequency. */
         static double getCutsDb (const Settings&, double hz, bool post, double sampleRate);
@@ -66,6 +101,8 @@ namespace cdaw
         PeakMeter dryPeak, wetPeak;
         std::shared_ptr<AnalyserFifo> wetFifo = std::make_shared<AnalyserFifo>();
 
+        static constexpr int numLines = 16, maxDiffusers = 6, numTaps = 24, numBloomTaps = 16, numGrains = 8;
+
     private:
         struct Delay
         {
@@ -73,9 +110,11 @@ namespace cdaw
             int write = 0;
 
             void setMaxSamples (int n)              { data.assign ((size_t) juce::jmax (4, n), 0.0f); write = 0; }
-            void clear()                            { std::fill (data.begin(), data.end(), 0.0f); }
+            void clear()                            { std::fill (data.begin(), data.end(), 0.0f); write = 0; }
+            int size() const noexcept               { return (int) data.size(); }
             void push (float x) noexcept            { data[(size_t) write] = x; advance(); }
             void advance() noexcept                 { if (++write == (int) data.size()) write = 0; }
+
             float read (int samplesAgo) const noexcept
             {
                 auto i = write - 1 - samplesAgo;
@@ -83,14 +122,15 @@ namespace cdaw
                 return data[(size_t) i];
             }
 
-            /** Schroeder allpass using this line as its delay (its whole length). */
+            /** Schroeder allpass using this line as its delay (its whole length): flat in level at
+                every frequency, so it can sit inside the feedback loop. */
             float allPass (float x, float g) noexcept
             {
-                const float stored = data[(size_t) write];      // the oldest sample: delayed by the full length
-                const float y = stored - g * x;
-                data[(size_t) write] = x + g * stored;
+                const float delayed = data[(size_t) write];     // the oldest sample: delayed by the full length
+                const float w = x + g * delayed;
+                data[(size_t) write] = w;
                 advance();
-                return y;
+                return delayed - g * w;
             }
 
             float readFractional (double samplesAgo) const noexcept
@@ -98,6 +138,18 @@ namespace cdaw
                 const auto whole = (int) samplesAgo;
                 const auto frac = (float) (samplesAgo - whole);
                 return read (whole) * (1.0f - frac) + read (whole + 1) * frac;
+            }
+
+            /** Cubic (Hermite) interpolation: keeps more of the top than linear when modulated. */
+            float readCubic (double samplesAgo) const noexcept
+            {
+                const auto whole = (int) samplesAgo;
+                const auto t = (float) (samplesAgo - whole);
+                const float ym1 = read (whole - 1), y0 = read (whole), y1 = read (whole + 1), y2 = read (whole + 2);
+                const float c1 = 0.5f * (y1 - ym1);
+                const float c2 = ym1 - 2.5f * y0 + 2.0f * y1 - 0.5f * y2;
+                const float c3 = 0.5f * (y2 - ym1) + 1.5f * (y0 - y1);
+                return ((c3 * t + c2) * t + c1) * t + y0;
             }
         };
 
@@ -116,9 +168,34 @@ namespace cdaw
             }
         };
 
-        void updateFilters (const Settings&);
+        /** A small, fixed-seed random generator, so every render is the same. */
+        struct Random
+        {
+            uint32_t state = 0x9e3779b9u;
+            void seed (uint32_t s) noexcept         { state = s != 0 ? s : 0x9e3779b9u; }
+            float next() noexcept                   // 0..1
+            {
+                state ^= state << 13;
+                state ^= state >> 17;
+                state ^= state << 5;
+                return (float) (state >> 8) * (1.0f / 16777216.0f);
+            }
+            float bipolar() noexcept                { return next() * 2.0f - 1.0f; }
+        };
 
-        static constexpr int numLines = 8, numDiffusers = 4, numTaps = 10;
+        struct Grain
+        {
+            bool active = false;
+            double delay = 0.0, step = 0.0;     // samples behind the write position; change per sample
+            int age = 0, length = 1;
+            float left = 0.0f, right = 0.0f;
+        };
+
+        struct Voicing;
+        static Voicing voicingOf (const Settings&);
+
+        void updateFilters (const Settings&);
+        void startGrain (const Settings&);
 
         static void hadamard (float* x) noexcept
         {
@@ -135,16 +212,47 @@ namespace cdaw
         double rate = 48000.0;
 
         Delay preDelayLine[2];
-        Delay diffusers[2][numDiffusers];
-        Delay lines[numLines];
+        Delay diffusers[2][maxDiffusers];
+        Delay lines[numLines], loopAllpass[numLines];
         double lineLength[numLines] {};                         // smoothed, samples
         double lfoPhase[numLines] {};
+        float walkFrom[numLines] {}, walkTo[numLines] {}, walkPos[numLines] {};
+        Random lineRandom[numLines];
         float lowState[numLines] {}, dampState[numLines] {};    // one-pole states per line
+        float earlyState[2][3] {};                              // early reflections' air absorption, per group
         Filter preLow, preHigh, postLow, postHigh;
         float designedCuts[4] { -1.0f, -1.0f, -1.0f, -1.0f };
         float lastDry = 1.0f, lastWet = 0.0f;
-        float lastWetPeak = 0.0f;                           // the tail's level in the last block
+        float lastTankPeak = 0.0f;                          // the network's output level in the last block
         double silentSeconds = 1.0e9;                       // how long the input has been silent
-        juce::AudioBuffer<float> wetBuffer, inputBuffer;    // reverb output; diffused input to the network
+
+        // Shimmer
+        Delay shimmerLine;
+        double shimmerPhase = 0.0;
+        float shimmerLow = 0.0f, shimmerHigh = 0.0f, shimmerFeed = 0.0f;
+
+        // Reverse
+        Delay reverseLine[2], smear[2][2];
+        int reverseAge[2] {}, reverseLength[2] { 1, 1 };
+
+        // Bloom
+        Delay bloomLine[2];
+        float bloomLast[2] {};
+
+        // Gated
+        float gateEnvelope = 0.0f, gateGain = 0.0f;
+        int gateHold = 0;
+
+        // Cloud
+        Delay cloudLine;
+        Grain grains[numGrains];
+        Random cloudRandom;
+        int nextGrain = 0;                                  // samples until the next grain starts
+        float cloudFeed = 0.0f;
+
+        // Duck
+        float duckEnvelope = 0.0f;
+
+        juce::AudioBuffer<float> wetBuffer, inputBuffer;    // reverb output; diffused input to the network (+ the gate's detector)
     };
 }

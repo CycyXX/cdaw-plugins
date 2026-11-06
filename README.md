@@ -9,7 +9,7 @@ loads VST3 (or Audio Units, on macOS).
 | **C-Comp** | Compressor: soft knee, sidechain, the transfer curve with a live dot, a scrolling level history |
 | **C-Multicomp** | 4-band compressor: phase-aligned crossovers you drag on a live spectrum |
 | **C-Esser** | De-esser: split or wideband, automatic threshold, listen to the band or to what it takes away |
-| **C-Verb** | Reverb: separate decay for lows, mids and highs, freeze, cuts before and after, a map of how long each frequency rings |
+| **C-Verb** | Reverb in eight types (Hall, Room, Plate, Shimmer, Reverse, Bloom, Gated, Cloud), 26 presets: separate decay for lows, mids and highs, ducking, freeze, cuts before and after, a map of how long each frequency rings |
 | **C-Delay** | Stereo or ping-pong, free or in notes; drive and filters in the loop, tape wobble, ducking |
 | **C-Chorus** | One to four voices, flanging, a view of the voices moving and the comb filter they make |
 | **C-Phaser** | 2 to 12 stages, a sonogram of the sweep |

@@ -25,8 +25,11 @@ set(CVERB_SHARED_SOURCES
     "${CDAW_SOURCE}/Shared/DSP/AnalyserFifo.cpp"
     "${CDAW_SOURCE}/Shared/DSP/ReverbEngine.cpp"
     "${CDAW_SOURCE}/Shared/CVerb/CVerbParameters.cpp"
+    "${CDAW_SOURCE}/Shared/CVerb/CVerbPresets.cpp"
     "${CDAW_SOURCE}/Shared/CVerb/CVerbView.cpp"
+    "${CDAW_SOURCE}/Shared/UI/EffectWidgets.cpp"
     "${CDAW_SOURCE}/Shared/UI/ParamKnob.cpp"
+    "${CDAW_SOURCE}/Shared/UI/PresetBar.cpp"
     "${CDAW_SOURCE}/Shared/LookAndFeel/CDAWLookAndFeel.cpp")
 
 target_sources(CVerb PRIVATE
