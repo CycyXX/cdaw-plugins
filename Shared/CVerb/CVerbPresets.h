@@ -24,6 +24,9 @@ namespace cdaw::CVerbPresets
     void setUserFolder (const juce::File&);     // tests; an empty File goes back to the usual one
 
     std::vector<Preset> loadUser();
+
+    /** Saves the values as a user preset (replacing one of the same name). Fails for an empty
+        name or a factory preset's name. */
     juce::Result saveUser (const juce::String& name, const std::function<float (int)>& valueOf);
 
     /** Every parameter's value in a preset, by ID. */

@@ -228,6 +228,25 @@ namespace cdaw::test
                 expectGreaterThan (rmsDb (in, 5.0, 6.0), rmsDb (in, 2.0, 3.0) - 12.0f, "frozen shimmer holds");
             }
 
+            beginTest ("Switching away from Shimmer or Cloud lets the tail die");
+            {
+                for (auto from : { Type::shimmer, Type::cloud })
+                {
+                    auto before = wet (from);
+                    before.character = 0.8f;
+                    const auto after = wet (Type::hall);
+
+                    Buffer b = noiseBurst (0.5, 9.0);
+                    ReverbEngine engine;
+                    engine.prepare (rate, 512, before);
+                    engine.jumpTo (before);
+                    for (int pos = 0; pos < b.getNumSamples(); pos += 512)
+                        engine.process (b, pos, juce::jmin (512, b.getNumSamples() - pos), pos < (int) (1.0 * rate) ? before : after);
+
+                    expectLessThan (rmsDb (b, 8.0, 9.0), -100.0f, names[(int) from] + " to Hall: silent 7 s after the switch");
+                }
+            }
+
             beginTest ("Reverse and Bloom swell, the Hall doesn't");
             {
                 auto reverse = wet (Type::reverse);
@@ -298,10 +317,22 @@ namespace cdaw::test
 
             beginTest ("The display's shapes match the types");
             {
+                // Reverse: nothing for half a window, a rise to the end of the first, then windows
+                // as long as the tail rings.
                 auto reverse = wet (Type::reverse);
                 const auto window = ReverbEngine::getShapeSeconds (reverse);
-                expectGreaterThan (ReverbEngine::getLevelDb (reverse, 2.0, window * 0.9), ReverbEngine::getLevelDb (reverse, 2.0, window * 0.1));
-                expectEquals (ReverbEngine::getLevelDb (reverse, 2.0, window * 1.01), -200.0);
+                expectEquals (ReverbEngine::getLevelDb (reverse, 2.0, window * 0.3), -200.0);
+                expectGreaterThan (ReverbEngine::getLevelDb (reverse, 2.0, window * 0.9), ReverbEngine::getLevelDb (reverse, 2.0, window * 0.6) + 6.0);
+                expectGreaterThan (ReverbEngine::getLevelDb (reverse, 2.0, window * 1.6), -30.0, "a long tail goes on past the window");
+                expectLessThan (ReverbEngine::getLevelDb (reverse, 0.1, window * 3.0), -60.0, "a short one doesn't");
+
+                // ... and that's what the engine does: a click into a 2 s tail, 100 ms windows,
+                // still sounding well after the first window.
+                auto shortWindows = reverse;
+                shortWindows.character = 0.0f;
+                shortWindows.decay = 2.0f;
+                const auto played = render (click (2.0), shortWindows);
+                expectGreaterThan (rmsDb (played, 0.5, 0.7), rmsDb (played, 0.12, 0.2) - 20.0f, "reverse windows keep playing the tail");
 
                 auto gated = wet (Type::gated);
                 expectEquals (ReverbEngine::getLevelDb (gated, 3.0, ReverbEngine::getShapeSeconds (gated) + 0.01), -200.0);
@@ -367,6 +398,9 @@ namespace cdaw::test
                 }
 
                 expect (CVerbPresets::saveUser ("  ", [&values] (int id) { return values[(size_t) id]; }).failed(), "a preset needs a name");
+                expect (CVerbPresets::saveUser ("default hall", [&values] (int id) { return values[(size_t) id]; }).failed(),
+                        "a factory preset's name is taken");
+                expectEquals ((int) CVerbPresets::loadUser().size(), 1);
                 CVerbPresets::setUserFolder ({});
                 folder.deleteRecursively();
             }

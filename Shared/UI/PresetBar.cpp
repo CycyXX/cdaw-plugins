@@ -103,7 +103,13 @@ namespace cdaw
     {
         auto* window = new juce::AlertWindow ("Save preset", "Name of the preset (saved in " + getUserFolder().getFullPathName() + "):",
                                               juce::MessageBoxIconType::NoIcon, this);
-        window->addTextEditor ("name", getCurrentName());
+
+        // A factory preset's name is taken: suggest one of your own.
+        auto suggested = getCurrentName();
+        for (auto& p : getPresets())
+            if (p.name == suggested && p.category != "User")
+                suggested = "My " + suggested;
+        window->addTextEditor ("name", suggested);
         window->addButton ("Save", 1, juce::KeyPress (juce::KeyPress::returnKey));
         window->addButton ("Cancel", 0, juce::KeyPress (juce::KeyPress::escapeKey));
 

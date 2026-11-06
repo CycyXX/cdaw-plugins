@@ -75,15 +75,29 @@ namespace cdaw
         /** Decay time (RT60, seconds) at a frequency, from decay and the low / high multipliers. */
         static double getDecayAt (const Settings&, double hz);
 
+        /** The reverb's shape `seconds` after the pre-delay, whatever the frequency: its build-up
+            and the type's shape (Bloom's swell, Reverse's windows, Gated's cut), in one part or
+            two (Reverse's two read heads), each a level (dB) and how long its sound has been
+            decaying. No parts: silent. */
+        struct Envelope
+        {
+            int parts = 0;
+            double shapeDb[2] {}, decaySeconds[2] {};
+
+            /** The level (dB) for a frequency that rings for `rt60` seconds. */
+            double levelDb (double rt60, bool frozen) const;
+        };
+
+        static Envelope getEnvelope (const Settings&, double seconds);
+
         /** The level (dB, 0 = loudest) of the reverb `seconds` after the pre-delay, for a
-            frequency that rings for `rt60` seconds (from getDecayAt): its build-up, decay and the
-            type's shape (Bloom's swell, Reverse's ramp, Gated's cut). The cuts aren't included. */
-        static double getLevelDb (const Settings&, double rt60, double seconds);
+            frequency that rings for `rt60` seconds (from getDecayAt). The cuts aren't included. */
+        static double getLevelDb (const Settings& s, double rt60, double seconds)  { return getEnvelope (s, seconds).levelDb (rt60, s.freeze); }
 
         /** How long the reverb can go on after the input stops (s), pre-delay included. */
         static double getTailSeconds (const Settings&);
 
-        /** Reverse's window or Gated's hold plus release (s); 0 for the other types. */
+        /** Reverse's window or Gated's hold plus release (s); 0 for the other types (displays mark it). */
         static double getShapeSeconds (const Settings&);
 
         /** Combined response (dB) of the pre or post cuts at a frequency. */
