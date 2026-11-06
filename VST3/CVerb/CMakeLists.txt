@@ -5,6 +5,7 @@
 juce_add_plugin(CVerb
     PRODUCT_NAME "C-Verb"
     COMPANY_NAME "Cyrill Durrer"
+    BUNDLE_ID "com.CyrillDurrer.CVerb"   # no space allowed, see VST3/Common/CDAWEffect.cmake
     VERSION ${PROJECT_VERSION}
     PLUGIN_MANUFACTURER_CODE Cdaw
     PLUGIN_CODE Cvrb

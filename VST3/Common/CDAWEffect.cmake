@@ -20,6 +20,8 @@ function(cdaw_add_effect_vst3 target)
     juce_add_plugin(${target}
         PRODUCT_NAME "${FX_PRODUCT_NAME}"
         COMPANY_NAME "Cyrill Durrer"
+        # JUCE would make it from COMPANY_NAME, but a bundle ID can't have a space. Only macOS reads it.
+        BUNDLE_ID "com.CyrillDurrer.${target}"
         VERSION ${PROJECT_VERSION}
         PLUGIN_MANUFACTURER_CODE Cdaw
         PLUGIN_CODE ${FX_PLUGIN_CODE}
