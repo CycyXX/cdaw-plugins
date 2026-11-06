@@ -165,6 +165,11 @@ namespace cdaw
             const auto settings = model.getSettings();
             const double preDelay = settings.preDelay * 0.001;
 
+            // The shape over time once per row; per pixel only the frequency's decay is left.
+            std::vector<ReverbEngine::Envelope> envelopes ((size_t) p.getHeight());
+            for (int y = 0; y < p.getHeight(); ++y)
+                envelopes[(size_t) y] = ReverbEngine::getEnvelope (settings, ((double) (p.getHeight() - y) - 0.5) / p.getHeight() * timeRange - preDelay);
+
             // Fading into the background as the tail dies away.
             std::array<juce::Colour, 256> colours;
             for (int i = 0; i < 256; ++i)
@@ -185,7 +190,7 @@ namespace cdaw
                     if (t <= 0.0)
                         continue;
 
-                    const double db = cuts + ReverbEngine::getLevelDb (settings, rt, t);
+                    const double db = cuts + envelopes[(size_t) y].levelDb (rt, settings.freeze);
                     if (db <= -60.0)
                         continue;
 
@@ -644,7 +649,7 @@ namespace cdaw
                 case ReverbEngine::Type::room:    return "A small room's dense first reflections. Shape: small box to irregular room; Walls: soft to hard.";
                 case ReverbEngine::Type::plate:   return "A bright, instantly dense plate with no room sound. Density and Brightness shape it.";
                 case ReverbEngine::Type::shimmer: return "The tail climbs by Pitch as it rings. Amount: how much; Tone: dark to sparkling.";
-                case ReverbEngine::Type::reverse: return "The reverb plays backwards: it swells, then stops. Length: the window; Smear blurs it.";
+                case ReverbEngine::Type::reverse: return "The reverb plays backwards in windows, each swelling and then stopping. Length: the window; Smear blurs it.";
                 case ReverbEngine::Type::bloom:   return "The reverb swells in slowly. Bloom: how long it takes; Feedback: how much it keeps building.";
                 case ReverbEngine::Type::gated:   return "A dense burst cut off sharply, the 80s way. Hold: how long it stays open; Release: how fast it closes.";
                 case ReverbEngine::Type::cloud:   return "The tail scattered into grains. Grain: their size; Scatter: how far they wander in time and pitch.";

@@ -152,6 +152,11 @@ namespace cdaw::CVerbPresets
         if (clean.isEmpty())
             return juce::Result::fail ("The preset needs a name");
 
+        // One name, one preset: the browser finds presets by name.
+        for (auto& p : factory())
+            if (p.name.equalsIgnoreCase (name.trim()))
+                return juce::Result::fail ("\"" + p.name + "\" is a factory preset: choose another name");
+
         auto folder = getUserFolder();
         if (auto made = folder.createDirectory(); made.failed())
             return made;

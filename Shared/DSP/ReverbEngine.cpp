@@ -275,48 +275,79 @@ namespace cdaw
         return rt * multiplier;
     }
 
-    double ReverbEngine::getLevelDb (const Settings& s, double rt60, double t)
+    double ReverbEngine::Envelope::levelDb (double rt60, bool frozen) const
     {
+        const double slope = frozen ? 0.0 : 60.0 / juce::jmax (0.05, rt60);
+
+        if (parts == 1)
+            return shapeDb[0] - slope * decaySeconds[0];
+
+        double power = 0.0;
+        for (int i = 0; i < parts; ++i)
+            power += std::pow (10.0, (shapeDb[i] - slope * decaySeconds[i]) * 0.1);
+
+        return power > 1.0e-20 ? 10.0 * std::log10 (power) : -200.0;
+    }
+
+    ReverbEngine::Envelope ReverbEngine::getEnvelope (const Settings& s, double t)
+    {
+        Envelope e;
         if (t <= 0.0)
-            return -200.0;
+            return e;
 
         const double buildUp = voicingOf (s).buildUp;
-        auto decayDb = [&] (double time) { return s.freeze ? 0.0 : -60.0 / juce::jmax (0.05, rt60) * time; };
         auto buildDb = [&] (double time) { return 20.0 * std::log10 (juce::jmax (1.0e-6, 1.0 - std::exp (-juce::jmax (0.0, time) / buildUp))); };
+        auto add = [&e] (double shape, double decaying)
+        {
+            e.shapeDb[e.parts] = shape;
+            e.decaySeconds[e.parts] = decaying;
+            ++e.parts;
+        };
 
         switch (s.type)
         {
             case Type::bloom:
             {
                 const double swell = bloomSeconds (s);
-                if (t < swell)
-                    return 30.0 * std::log10 (juce::jmax (1.0e-3, t / swell)) + buildDb (t);
-                return decayDb (t - swell);
+                if (t < swell)  add (30.0 * std::log10 (juce::jmax (1.0e-3, t / swell)) + buildDb (t), 0.0);
+                else            add (0.0, t - swell);
+                return e;
             }
 
             case Type::reverse:
             {
-                // Each window plays the tail backwards: it rises, then stops.
+                // As process() does it: two heads half a window apart, each playing the window
+                // before its own backwards (so the tail of age 2 * start - t), faded in and out.
                 const double window = reverseSeconds (s);
-                if (t >= window)
-                    return -200.0;
-                return decayDb (window - t) + buildDb (window - t + 0.002);
+                for (int head = 0; head < 2; ++head)
+                {
+                    const double sinceStart = t - head * 0.5 * window;
+                    if (sinceStart < 0.0)
+                        continue;
+
+                    const double intoWindow = std::fmod (sinceStart, window);
+                    const double age = (t - intoWindow) - intoWindow;
+                    const double fade = hann (intoWindow / window);
+                    if (age >= 0.0 && fade > 1.0e-4)
+                        add (20.0 * std::log10 (fade) + buildDb (age + 0.002), age);
+                }
+                return e;
             }
 
             case Type::gated:
             {
                 const double hold = gateHoldSeconds (s), release = gateReleaseSeconds (s);
-                const double level = buildDb (t) + decayDb (t);
-                if (t < hold)            return level;
-                if (t < hold + release)  return level - 60.0 * (t - hold) / release;
-                return -200.0;
+                if (t < hold)                 add (buildDb (t), t);
+                else if (t < hold + release)  add (buildDb (t) - 60.0 * (t - hold) / release, t);
+                return e;
             }
 
             case Type::hall: case Type::room: case Type::plate: case Type::shimmer: case Type::cloud:
                 break;
         }
 
-        return buildDb (t) + decayDb (t);
+        add (buildDb (t), t);
+        return e;
     }
 
     double ReverbEngine::getShapeSeconds (const Settings& s)
@@ -734,6 +765,10 @@ namespace cdaw
         }
 
         const bool shimmer = type == Type::shimmer, cloud = type == Type::cloud;
+
+        // Only the type that's on feeds back (a value left from another type would drive the tank forever).
+        if (! shimmer) shimmerFeed = 0.0f;
+        if (! cloud)   cloudFeed = 0.0f;
         const double shimmerRatio = std::pow (2.0, juce::jlimit (-24.0f, 24.0f, settings.pitch) / 12.0);
         const double shimmerWindow = shimmerWindowSeconds * rate;
         const float shimmerAmount = juce::jlimit (0.0f, 1.0f, settings.character);
