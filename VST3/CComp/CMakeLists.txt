@@ -5,6 +5,7 @@
 juce_add_plugin(CComp
     PRODUCT_NAME "C-Comp"
     COMPANY_NAME "Cyrill Durrer"
+    BUNDLE_ID "com.CyrillDurrer.CComp"   # no space allowed, see VST3/Common/CDAWEffect.cmake
     VERSION ${PROJECT_VERSION}
     PLUGIN_MANUFACTURER_CODE Cdaw
     PLUGIN_CODE Ccmp
