@@ -1,4 +1,5 @@
 #include "CVerbView.h"
+#include "CVerbPresets.h"
 #include "../UI/SpectrumAnalyser.h"
 #include "../LookAndFeel/Palette.h"
 
@@ -6,7 +7,7 @@ namespace cdaw
 {
     namespace
     {
-        constexpr int headerHeight = 34, knobsHeight = 128, scopeHeight = 96;
+        constexpr int headerHeight = 34, typeHeight = 32, knobsHeight = 128, scopeHeight = 96, presetBarWidth = 330;
         const juce::Colour wetColour { 0xff4fd6c8 };
         const juce::Colour dryColour { 0xff9aa6b8 };
         const juce::Colour preColour { 0xffb39ddb };
@@ -128,8 +129,24 @@ namespace cdaw
             if (dragging == Drag::decay)
                 return;
 
-            const double longest = model.value (CVerbParameters::preDelay) * 0.001
-                                   + model.value (CVerbParameters::decay) * juce::jmax (1.0f, model.value (CVerbParameters::lowDecay)) * 1.05;
+            const auto settings = model.getSettings();
+            double longest = settings.preDelay * 0.001 + settings.decay * juce::jmax (1.0f, settings.lowDecay) * 1.05;
+
+            if (! settings.freeze)
+            {
+                // Where the slowest frequency has died away, with the type's shape.
+                double rt = 0.0;
+                for (double hz : { 60.0, 200.0, 1000.0, 5000.0 })
+                    rt = juce::jmax (rt, ReverbEngine::getDecayAt (settings, hz));
+
+                double end = 0.0;
+                for (double t = 0.005; t < 40.0; t += 0.005)
+                    if (ReverbEngine::getLevelDb (settings, rt, t) > -60.0)
+                        end = t;
+
+                longest = settings.preDelay * 0.001 + end * 1.05;
+            }
+
             timeRange = 0.5;
             while (timeRange < longest && timeRange < 32.0)
                 timeRange *= 2.0;
@@ -145,16 +162,8 @@ namespace cdaw
             image.clear (image.getBounds(), plotBackground);
             juce::Image::BitmapData pixels (image, juce::Image::BitmapData::writeOnly);
 
-            const bool frozen = model.value (CVerbParameters::freeze) >= 0.5f;
-            const double preDelay = model.value (CVerbParameters::preDelay) * 0.001;
-            const double buildUp = 0.004 + 0.05 * model.value (CVerbParameters::diffusion) * (0.3 + model.value (CVerbParameters::size));
-
-            std::vector<float> buildDb ((size_t) p.getHeight());
-            for (int y = 0; y < p.getHeight(); ++y)
-            {
-                auto t = ((double) (p.getHeight() - y) - 0.5) / p.getHeight() * timeRange - preDelay;
-                buildDb[(size_t) y] = t <= 0.0 ? -200.0f : (float) (20.0 * std::log10 (juce::jmax (1.0e-6, 1.0 - std::exp (-t / buildUp))));
-            }
+            const auto settings = model.getSettings();
+            const double preDelay = settings.preDelay * 0.001;
 
             // Fading into the background as the tail dies away.
             std::array<juce::Colour, 256> colours;
@@ -167,8 +176,8 @@ namespace cdaw
             for (int x = 0; x < p.getWidth(); ++x)
             {
                 const double hz = xToHz ((float) p.getX() + (float) x + 0.5f);
-                const double cuts = ReverbEngine::getCutsDb (model.getSettings(), hz, false, model.getEngine().getSampleRate()) + ReverbEngine::getCutsDb (model.getSettings(), hz, true, model.getEngine().getSampleRate());
-                const double dbPerSecond = frozen ? 0.0 : 60.0 / juce::jmax (0.05, ReverbEngine::getDecayAt (model.getSettings(), hz));
+                const double cuts = ReverbEngine::getCutsDb (settings, hz, false, model.getEngine().getSampleRate()) + ReverbEngine::getCutsDb (settings, hz, true, model.getEngine().getSampleRate());
+                const double rt = ReverbEngine::getDecayAt (settings, hz);
 
                 for (int y = 0; y < p.getHeight(); ++y)
                 {
@@ -176,7 +185,7 @@ namespace cdaw
                     if (t <= 0.0)
                         continue;
 
-                    const double db = cuts - dbPerSecond * t + buildDb[(size_t) y];
+                    const double db = cuts + ReverbEngine::getLevelDb (settings, rt, t);
                     if (db <= -60.0)
                         continue;
 
@@ -320,8 +329,24 @@ namespace cdaw
                 g.fillPath (line);
             }
 
+            // Reverse's window or Gated's hold and release: where the sound stops.
+            if (const auto shape = ReverbEngine::getShapeSeconds (model.getSettings()); shape > 0.0)
+            {
+                juce::Path line;
+                line.startNewSubPath (p.getX(), timeToY (preDelay + shape));
+                line.lineTo (p.getRight(), timeToY (preDelay + shape));
+                const float dashes[] { 6.0f, 4.0f };
+                juce::PathStrokeType (1.5f).createDashedStroke (line, line, dashes, 2);
+                g.setColour (juce::Colours::white.withAlpha (0.75f));
+                g.fillPath (line);
+                g.setFont (juce::FontOptions (10.5f));
+                g.drawText (model.getSettings().type == ReverbEngine::Type::reverse ? "reverse window" : "gate closes",
+                            juce::Rectangle<float> (p.getRight() - 150.0f, timeToY (preDelay + shape) + 3.0f, 114.0f, 13.0f),
+                            juce::Justification::centredRight);
+            }
+
             // RT60 line: how long each frequency rings.
-            if (model.value (CVerbParameters::freeze) < 0.5f)
+            if (model.value (CVerbParameters::freeze) < 0.5f && ReverbEngine::getShapeSeconds (model.getSettings()) <= 0.0)
             {
                 juce::Path rt;
                 for (float x = p.getX(); x <= p.getRight(); x += 2.0f)
@@ -595,9 +620,46 @@ namespace cdaw
     };
 
     //==============================================================================
+    /** The shared widgets (the type buttons) take an EffectModel: this one passes through to C-Verb's. */
+    struct CVerbView::Adapter : public EffectModel
+    {
+        explicit Adapter (CVerbModel& m) : model (m) {}
+
+        std::shared_ptr<KnobParameter> parameter (int id) override      { return model.parameter ((CVerbParameters::ID) id); }
+        void beginUndoTransaction (const juce::String& name) override   { model.beginUndoTransaction (name); }
+        double getBpm() override                                         { return 120.0; }
+        juce::String getText (const juce::String& key) override         { return model.getText (key); }
+        void setText (const juce::String& key, const juce::String& value) override { model.setText (key, value); }
+
+        CVerbModel& model;
+    };
+
+    namespace
+    {
+        juce::String describe (ReverbEngine::Type t)
+        {
+            switch (t)
+            {
+                case ReverbEngine::Type::hall:    return "A large, smooth space. Distance moves the source back; Spin makes the movement wander.";
+                case ReverbEngine::Type::room:    return "A small room's dense first reflections. Shape: small box to irregular room; Walls: soft to hard.";
+                case ReverbEngine::Type::plate:   return "A bright, instantly dense plate with no room sound. Density and Brightness shape it.";
+                case ReverbEngine::Type::shimmer: return "The tail climbs by Pitch as it rings. Amount: how much; Tone: dark to sparkling.";
+                case ReverbEngine::Type::reverse: return "The reverb plays backwards: it swells, then stops. Length: the window; Smear blurs it.";
+                case ReverbEngine::Type::bloom:   return "The reverb swells in slowly. Bloom: how long it takes; Feedback: how much it keeps building.";
+                case ReverbEngine::Type::gated:   return "A dense burst cut off sharply, the 80s way. Hold: how long it stays open; Release: how fast it closes.";
+                case ReverbEngine::Type::cloud:   return "The tail scattered into grains. Grain: their size; Scatter: how far they wander in time and pitch.";
+            }
+            return {};
+        }
+    }
+
     CVerbView::CVerbView (CVerbModel& m) : model (m)
     {
         setOpaque (true);
+
+        adapter = std::make_unique<Adapter> (model);
+        typeButtons = std::make_unique<ChoiceButtons> (*adapter, CVerbParameters::type, ReverbEngine::getTypeNames(), wetColour, "Reverb type");
+        addAndMakeVisible (*typeButtons);
 
         spaceView = std::make_unique<SpaceView> (model);
         tailScope = std::make_unique<TailScope>();
@@ -608,15 +670,20 @@ namespace cdaw
         {
             auto* k = knobs.add (new ParamKnob (model.parameter (id), label, c, CVerbParameters::get (id).defaultValue, mid));
             addAndMakeVisible (k);
+            return knobs.size() - 1;
         };
 
         using P = CVerbParameters::ID;
-        const auto space = Palette::tempo, tone = Palette::automation, filters = Palette::accent, output = Palette::marker;
+        const auto space = Palette::tempo, character = Palette::mute, tone = Palette::automation, filters = Palette::accent, output = Palette::marker;
         add (P::preDelay, "Pre-delay", space, 40.0f);
         add (P::size, "Size", space, 0.0f);
         add (P::decay, "Decay", space, 2.5f);
         add (P::diffusion, "Diffusion", space, 0.0f);
         add (P::modulation, "Modulation", space, 0.0f);
+        characterKnob = add (P::character, "Character", character, 0.0f);
+        variationKnob = add (P::variation, "Variation", character, 0.0f);
+        pitchKnob = add (P::pitch, "Pitch", character, 0.0f);
+        add (P::duck, "Duck", character, 0.0f);
         add (P::lowDecay, "Low decay", tone, 1.0f);
         add (P::highDecay, "High decay", tone, 0.0f);
         add (P::dampFreq, "Damping", tone, 4000.0f);
@@ -628,7 +695,42 @@ namespace cdaw
         add (P::width, "Width", output, 0.0f);
         add (P::mix, "Mix", output, 0.0f);
 
-        groups = { { "SPACE", 0, 5, {} }, { "TONE", 5, 3, {} }, { "FILTERS", 8, 4, {} }, { "OUTPUT", 12, 3, {} } };
+        groups = { { "SPACE", 0, 5, {} }, { "CHARACTER", 5, 4, {} }, { "TONE", 9, 3, {} }, { "FILTERS", 12, 4, {} }, { "OUTPUT", 16, 3, {} } };
+
+        // Presets.
+        presetBar.getPresets = []
+        {
+            std::vector<PresetBar::Item> items;
+            for (auto& p : CVerbPresets::everything())
+                items.push_back ({ p.name, p.category, CVerbPresets::valuesOf (p) });
+            return items;
+        };
+        presetBar.getCategories = [] { return ReverbEngine::getTypeNames(); };
+        presetBar.getCurrentName = [this]
+        {
+            auto name = model.getText ("presetName");
+            return name.isNotEmpty() ? name : CVerbPresets::factory()[0].name;     // the defaults are the Default Hall
+        };
+        presetBar.getValue = [this] (int id) { return model.value ((CVerbParameters::ID) id); };
+        presetBar.getTolerance = [] (int id)
+        {
+            const auto& spec = CVerbParameters::get ((CVerbParameters::ID) id);
+            return (spec.maximum - spec.minimum) * 0.0005f;
+        };
+        presetBar.apply = [this] (const PresetBar::Item& item) { applyPreset (item); };
+        presetBar.save = [this] (const juce::String& name)
+        {
+            auto saved = CVerbPresets::saveUser (name, [this] (int id) { return model.value ((CVerbParameters::ID) id); });
+            if (saved.wasOk())
+            {
+                model.beginUndoTransaction ("Save preset");
+                model.setText ("presetName", name);
+            }
+            return saved;
+        };
+        presetBar.getUserFolder = [] { return CVerbPresets::getUserFolder(); };
+        addAndMakeVisible (presetBar);
+        presetBar.refresh();
 
         freezeButton.setClickingTogglesState (false);
         freezeButton.setTooltip ("Hold the tail forever (new sound stops going in)");
@@ -642,6 +744,7 @@ namespace cdaw
         };
         addAndMakeVisible (freezeButton);
 
+        updateTypeControls();
         setSize (defaultWidth, defaultHeight);
         startTimerHz (60);
     }
@@ -650,6 +753,40 @@ namespace cdaw
     {
         stopTimer();
         spaceView->setActive (false);
+    }
+
+    void CVerbView::applyPreset (const PresetBar::Item& preset)
+    {
+        model.beginUndoTransaction ("Preset: " + preset.name);
+
+        for (int i = 0; i < CVerbParameters::count && i < (int) preset.values.size(); ++i)
+        {
+            auto p = model.parameter ((CVerbParameters::ID) i);
+            if (std::abs (p->getValue() - preset.values[(size_t) i]) > 1.0e-6f)
+            {
+                p->beginGesture();
+                p->setValue (preset.values[(size_t) i]);
+                p->endGesture();
+            }
+        }
+
+        model.setText ("presetName", preset.name);
+        updateTypeControls();
+    }
+
+    void CVerbView::updateTypeControls()
+    {
+        const auto type = CVerbParameters::typeOf (model.value (CVerbParameters::type));
+        if ((int) type == shownType)
+            return;
+
+        shownType = (int) type;
+        const auto names = ReverbEngine::getKnobNames (type);
+        knobs[characterKnob]->setLabel (names.first);
+        knobs[variationKnob]->setLabel (names.second);
+        knobs[pitchKnob]->setEnabled (ReverbEngine::usesPitch (type));
+        typeButtons->setTooltip (describe (type));
+        repaint (typeArea);
     }
 
     void CVerbView::visibilityChanged()
@@ -682,15 +819,21 @@ namespace cdaw
         for (auto* k : knobs)
             k->refresh();
 
+        typeButtons->refresh();
+        updateTypeControls();
+        if (frame % 15 == 0)
+            presetBar.refresh();
+
         freezeButton.setToggleState (model.value (CVerbParameters::freeze) >= 0.5f, juce::dontSendNotification);
         spaceView->refreshIfChanged();
 
         // The spectrum at half the rate is plenty.
-        if (isShowing() && (frame++ & 1) == 0)
+        if (isShowing() && (frame & 1) == 0)
         {
             spaceView->setActive (true);
             spaceView->updateSpectrum();
         }
+        ++frame;
 
         // The summary in the header follows the knobs.
         repaint (getLocalBounds().removeFromTop (headerHeight));
@@ -708,9 +851,18 @@ namespace cdaw
         g.setColour (Palette::textDim);
         g.setFont (juce::FontOptions (12.0f));
         auto text = [this] (CVerbParameters::ID id) { return model.parameter (id)->getCurrentText(); };
-        auto summary = text (CVerbParameters::decay) + "  -  pre-delay " + text (CVerbParameters::preDelay)
+        auto summary = text (CVerbParameters::type) + "  -  " + text (CVerbParameters::decay) + "  -  pre-delay " + text (CVerbParameters::preDelay)
                        + "  -  size " + text (CVerbParameters::size) + "  -  mix " + text (CVerbParameters::mix);
-        g.drawText (summary, header.withTrimmedLeft (90).withTrimmedRight (120), juce::Justification::centredLeft);
+        g.drawText (summary, header.withTrimmedLeft (90 + presetBarWidth + 16).withTrimmedRight (110), juce::Justification::centredLeft);
+
+        // What the type does, beside its buttons.
+        if (! typeArea.isEmpty())
+        {
+            g.setColour (Palette::textDim);
+            g.setFont (juce::FontOptions (11.5f));
+            g.drawFittedText (describe (CVerbParameters::typeOf (model.value (CVerbParameters::type))),
+                              typeArea.withTrimmedLeft (typeButtons->getRight() - typeArea.getX() + 12), juce::Justification::centredLeft, 2);
+        }
 
         // Knob groups: a title and a faint panel behind each.
         for (auto& group : groups)
@@ -729,6 +881,11 @@ namespace cdaw
         auto r = getLocalBounds();
         auto header = r.removeFromTop (headerHeight).reduced (10, 5);
         freezeButton.setBounds (header.removeFromRight (90));
+        header.removeFromLeft (90);
+        presetBar.setBounds (header.removeFromLeft (presetBarWidth));
+
+        typeArea = r.removeFromTop (typeHeight).reduced (8, 3);
+        typeButtons->setBounds (typeArea.withWidth (juce::jmin (typeArea.getWidth() / 2, 8 * 74)));
 
         auto knobArea = r.removeFromBottom (knobsHeight).reduced (8, 6);
         const int gap = 8;

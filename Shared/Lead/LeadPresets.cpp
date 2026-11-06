@@ -174,11 +174,11 @@ namespace cdaw::LeadPresets
 
             // Each preset's volume, so a phrase peaks around -6 dBFS (set from measurements).
             static const std::map<juce::String, float> volumes {
-                { "Init", 4.3f }, { "Classic Saw Lead", -4.0f }, { "Square Hero", -3.8f }, { "Smooth Sine Lead", -8.1f },
-                { "Supersaw Anthem", -9.7f }, { "Portamento Whistle", -7.6f }, { "Sync Screamer", -5.1f }, { "Sync Wobble", -4.1f },
-                { "FM Bell Lead", -4.1f }, { "Ring Mod Lead", -3.3f }, { "Talking Lead", 3.6f }, { "Acid Line", -3.4f },
-                { "Dirty Fold", -3.3f }, { "Screaming Ladder", -5.5f }, { "Glass Lead", -12.2f }, { "Pad-Lead Hybrid", -11.0f }, { "Overdriven Lead", -7.0f }, { "Fuzz Lead", -14.1f }, { "Pluck Lead", -4.1f },
-                { "Retro Arp Lead", -6.3f }, { "Brass Stab", -6.9f }, { "Mono Bass", -0.5f } };
+                { "Init", 4.3f }, { "Classic Saw Lead", -2.1f }, { "Square Hero", -3.6f }, { "Smooth Sine Lead", -6.8f },
+                { "Supersaw Anthem", -8.7f }, { "Portamento Whistle", -4.9f }, { "Sync Screamer", -3.8f }, { "Sync Wobble", -2.7f },
+                { "FM Bell Lead", -3.7f }, { "Ring Mod Lead", -2.8f }, { "Talking Lead", 3.8f }, { "Acid Line", -2.4f },
+                { "Dirty Fold", -2.6f }, { "Screaming Ladder", -5.3f }, { "Glass Lead", -9.8f }, { "Pad-Lead Hybrid", -10.5f }, { "Overdriven Lead", -5.5f }, { "Fuzz Lead", -12.4f }, { "Pluck Lead", -4.1f },
+                { "Retro Arp Lead", -7.1f }, { "Brass Stab", -6.1f }, { "Mono Bass", -0.5f } };
 
             for (auto& preset : p)
                 if (auto found = volumes.find (preset.name); found != volumes.end())

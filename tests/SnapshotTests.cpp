@@ -328,6 +328,19 @@ namespace cdaw::test
             }
 
             {
+                // Reverse: the decay map turned round, its window marked.
+                VerbModel model;
+                model.parameter (CVerbParameters::type)->setValue ((float) ReverbEngine::Type::reverse);
+                model.parameter (CVerbParameters::character)->setValue (0.7f);
+                model.parameter (CVerbParameters::decay)->setValue (1.5f);
+                model.engine.prepare (48000.0, 512, model.getSettings());
+                CVerbView view (model);
+                view.setSize (CVerbView::defaultWidth, CVerbView::defaultHeight);
+                feedNoise (*model.engine.wetFifo, 6, [&view] { view.updateSpectrum(); });
+                finish (view, "c-verb-reverse");
+            }
+
+            {
                 using P = DistParameters::ID;
                 TestModel model (DistParameters::all());
                 model.set (P::gateOn, 1.0f);

@@ -339,3 +339,8 @@ C-Verb prehighcut
 C-Verb postlowcut
 C-Verb posthighcut
 C-Verb freeze
+C-Verb type
+C-Verb character
+C-Verb variation
+C-Verb pitch
+C-Verb duck

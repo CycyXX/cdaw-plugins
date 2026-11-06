@@ -56,9 +56,16 @@ namespace cdaw
             std::shared_ptr<KnobParameter> parameter (CVerbParameters::ID id) override  { return parameters[(size_t) id]; }
             ReverbEngine& getEngine() override                                      { return processor.engine; }
 
+            juce::String getText (const juce::String& key) override                 { return processor.state.state[juce::Identifier (key)].toString(); }
+            void setText (const juce::String& key, const juce::String& value) override
+            {
+                processor.state.state.setProperty (juce::Identifier (key), value, nullptr);
+            }
+
         private:
             CVerbProcessor& processor;
             CDAWLookAndFeel lookAndFeel;
+            juce::TooltipWindow tooltipWindow { this };
             std::vector<std::shared_ptr<KnobParameter>> parameters;
             std::unique_ptr<CVerbView> view;
         };
@@ -104,8 +111,7 @@ namespace cdaw
 
     double CVerbProcessor::getTailLengthSeconds() const
     {
-        auto s = getSettings();
-        return s.preDelay * 0.001 + s.decay * juce::jmax (1.0f, s.lowDecay) * 1.1;
+        return ReverbEngine::getTailSeconds (getSettings());
     }
 
     bool CVerbProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const

@@ -1,4 +1,5 @@
 #include "CVerbParameters.h"
+#include "../Common/ParameterSpec.h"
 
 namespace cdaw::CVerbParameters
 {
@@ -48,6 +49,15 @@ namespace cdaw::CVerbParameters
             specs[postHighCut] = { "posthighcut", "Post high cut",     lowOff, highOff, 12000.0f, 6000.0f, 0.0f, highCutText, parseHz };
             specs[freeze]      = { "freeze",      "Freeze",            0.0f,   1.0f,    0.0f,    0.0f,    1.0f,
                                    [] (float v) { return v >= 0.5f ? juce::String ("On") : juce::String ("Off"); }, parseFloat };
+
+            const auto types = ReverbEngine::getTypeNames();
+            specs[type]        = { "type",        "Type",              0.0f,   (float) (types.size() - 1), 0.0f, 0.0f, 1.0f,
+                                   SpecText::choice (types), SpecText::parseChoice (types) };
+            specs[character]   = { "character",   "Character",         0.0f,   1.0f,    0.5f,    0.0f,    0.0f, percent, parsePercent };
+            specs[variation]   = { "variation",   "Variation",         0.0f,   1.0f,    0.5f,    0.0f,    0.0f, percent, parsePercent };
+            specs[pitch]       = { "pitch",       "Pitch",             -24.0f, 24.0f,   12.0f,   0.0f,    1.0f,
+                                   [] (float v) { auto st = juce::roundToInt (v); return (st > 0 ? "+" : "") + juce::String (st) + " st"; }, parseFloat };
+            specs[duck]        = { "duck",        "Duck",              0.0f,   1.0f,    0.0f,    0.0f,    0.0f, percent, parsePercent };
             return specs;
         }
     }
@@ -85,6 +95,16 @@ namespace cdaw::CVerbParameters
         s.postLowCut = valueOf (postLowCut);
         s.postHighCut = valueOf (postHighCut);
         s.freeze = valueOf (freeze) >= 0.5f;
+        s.type = typeOf (valueOf (type));
+        s.character = valueOf (character);
+        s.variation = valueOf (variation);
+        s.pitch = (float) juce::roundToInt (valueOf (pitch));
+        s.duck = valueOf (duck);
         return s;
+    }
+
+    ReverbEngine::Type typeOf (float value)
+    {
+        return (ReverbEngine::Type) juce::jlimit (0, ReverbEngine::numTypes - 1, juce::roundToInt (value));
     }
 }

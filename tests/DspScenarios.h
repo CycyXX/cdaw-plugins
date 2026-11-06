@@ -182,6 +182,32 @@ namespace cdaw::test::dsp
         auto small = base;
         small.size = 0.0f; small.decay = 0.2f; small.early = 0.0f; small.modulation = 0.0f;
         list.push_back (make<E> ("reverb_short", small));
+
+        // Every type, then a change of type and character while it rings.
+        const auto names = E::getTypeNames();
+        for (int t = 1; t < E::numTypes; ++t)
+        {
+            auto typed = base;
+            typed.type = (E::Type) t;
+            typed.mix = 0.6f;
+            list.push_back (make<E> ("reverb_" + names[t].toLowerCase(), typed));
+        }
+
+        auto shimmer = base;
+        shimmer.type = E::Type::shimmer; shimmer.character = 1.0f; shimmer.decay = 6.0f; shimmer.pitch = -12.0f;
+        auto shimmerFrozen = shimmer;
+        shimmerFrozen.freeze = true;
+        list.push_back (make<E> ("reverb_shimmer_freeze", shimmer, shimmerFrozen));
+
+        auto cloud = base;
+        cloud.type = E::Type::cloud; cloud.character = 0.2f; cloud.variation = 1.0f;
+        auto plate = base;
+        plate.type = E::Type::plate; plate.character = 0.9f; plate.variation = 0.1f;
+        list.push_back (make<E> ("reverb_type_change", cloud, plate));
+
+        auto ducked = base;
+        ducked.duck = 1.0f; ducked.mix = 0.8f;
+        list.push_back (make<E> ("reverb_duck", ducked));
         return list;
     }
 
