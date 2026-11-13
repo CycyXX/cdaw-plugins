@@ -10,17 +10,31 @@ param(
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 
+# Visual Studio's C++ build tools, with its CMake and Ninja, in one command.
+$toolsHint = 'Install them with: winget install Microsoft.VisualStudio.2022.BuildTools --override ' +
+    '"--wait --passive --add Microsoft.VisualStudio.Workload.VCTools --add Microsoft.VisualStudio.Component.VC.CMake.Project --includeRecommended"'
+
+# A clone without --recurse-submodules has an empty JUCE folder.
+if (-not (Test-Path "$root\third_party\JUCE\CMakeLists.txt")) {
+    $ErrorActionPreference = 'Continue'   # git reports progress on stderr, which install.ps1 captures
+    git -C $root submodule update --init --depth 1
+    $ErrorActionPreference = 'Stop'
+    if (-not (Test-Path "$root\third_party\JUCE\CMakeLists.txt")) {
+        throw "JUCE is missing and couldn't be downloaded: run 'git submodule update --init' in $root."
+    }
+}
+
 # Below normal priority, inherited by CMake, Ninja and the compilers: builds use every idle core
 # but give way to whatever else you're working on.
 (Get-Process -Id $PID).PriorityClass = 'BelowNormal'
 
 if (-not ($env:VSCMD_ARG_TGT_ARCH -eq 'x64' -and (Get-Command cl -ErrorAction SilentlyContinue))) {
     $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
-    if (-not (Test-Path $vswhere)) { throw "vswhere not found: install Visual Studio 2022 or its Build Tools, with C++." }
+    if (-not (Test-Path $vswhere)) { throw "Visual Studio's C++ build tools aren't installed. $toolsHint" }
 
     $vs = & $vswhere -latest -products * -version "[17.0,19.0)" `
         -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
-    if (-not $vs) { throw "No Visual Studio with the C++ x64 tools found." }
+    if (-not $vs) { throw "No Visual Studio with the C++ x64 tools found. $toolsHint" }
 
     # Visual Studio's own setup scripts call vswhere by name, and print an error if it isn't on PATH.
     $env:Path = "$(Split-Path $vswhere);$env:Path"
@@ -30,6 +44,13 @@ if (-not ($env:VSCMD_ARG_TGT_ARCH -eq 'x64' -and (Get-Command cl -ErrorAction Si
 
 foreach ($p in @("$env:ProgramFiles\CMake\bin", "$env:LOCALAPPDATA\Microsoft\WinGet\Links")) {
     if ((Test-Path $p) -and ($env:Path -notlike "*$p*")) { $env:Path = "$p;$env:Path" }
+}
+$tools = @('cmake')
+if ($Preset -like 'ninja*') { $tools += 'ninja' }
+foreach ($tool in $tools) {
+    if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) {
+        throw "$tool not found: add 'C++ CMake tools for Windows' in the Visual Studio Installer. $toolsHint"
+    }
 }
 
 Push-Location $root

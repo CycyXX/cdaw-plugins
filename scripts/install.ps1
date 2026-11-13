@@ -2,15 +2,29 @@
 #   .\scripts\install.ps1          (or double-click Install-Plugins.bat)
 # Close the hosts first: they keep loaded plugins locked. Exits with 1 if any plugin isn't the build just made.
 #
-# The folder needs admin rights, so Windows asks once, unless you have made the folder writable. If you decline,
-# a plugin never installed there goes to the per-user VST3 folder instead; one with an older copy there is reported
-# as not installed, because a second copy would show up twice in Cubase.
+# The folder is in Program Files, so the first run asks Windows for admin rights, once, before building: it lets your
+# account write to that one folder, and later runs install without asking. If you decline, a plugin never installed
+# there goes to the per-user VST3 folder instead; one with an older copy there is reported as not installed, because
+# a second copy would show up twice in Cubase.
 param(
     [string] $Preset = 'ninja-msvc-relwithdebinfo',
     [string] $Destination = "$env:ProgramFiles\Common Files\VST3\CDAW",
     [string] $UserDestination = "$env:LOCALAPPDATA\Programs\Common\VST3",
-    [string] $CopyFrom = ''     # Only for this script, when it runs itself with admin rights.
+    [string] $GrantTo = ''     # Only for this script, when it runs itself with admin rights: the SID to let write to $Destination.
 )
+
+if ($GrantTo) {
+    try {
+        New-Item -ItemType Directory -Force $Destination -ErrorAction Stop | Out-Null
+        # Modify, inherited by the plugins already there, so they can be replaced too.
+        icacls $Destination /grant "*${GrantTo}:(OI)(CI)M" | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "icacls failed ($LASTEXITCODE)" }
+    } catch {
+        Write-Host "FAILED: $($_.Exception.Message)"
+        Start-Sleep -Seconds 6
+    }
+    return
+}
 
 function Copy-Bundles ([string] $from, [string] $to) {
     New-Item -ItemType Directory -Force $to -ErrorAction Stop | Out-Null
@@ -19,15 +33,6 @@ function Copy-Bundles ([string] $from, [string] $to) {
         if (Test-Path $target) { Remove-Item $target -Recurse -Force -ErrorAction Stop }
         Copy-Item $bundle.FullName $to -Recurse -Force -ErrorAction Stop
     }
-}
-
-if ($CopyFrom) {
-    try { Copy-Bundles $CopyFrom $Destination }
-    catch {
-        Write-Host "FAILED: $($_.Exception.Message) (close Cubase and CDAW, which keep loaded plugins locked, and try again)"
-        Start-Sleep -Seconds 6
-    }
-    return
 }
 
 # Whether every file of the bundle at $from is also at $to, with the same contents.
@@ -70,13 +75,25 @@ function Get-VersionWarnings {
 
 $warnings = @(Get-VersionWarnings)
 
+# Ask now rather than after the build, so nobody has to wait for the prompt.
+if (-not (Test-Writable $Destination)) {
+    Write-Host "Windows will ask for admin rights, once: to let your account install plugins in $Destination."
+    $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+    try {
+        $arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`" -GrantTo $sid -Destination `"$Destination`""
+        Start-Process powershell -ArgumentList $arguments -Verb RunAs -Wait -ErrorAction Stop
+    } catch { Write-Host "No admin rights given: $($_.Exception.Message)" }
+}
+
 # Every folder in VST3 is a plugin, except Common. Stop before installing anything if one doesn't build.
 $folders = Get-ChildItem "$root\VST3" -Directory | Where-Object { $_.Name -ne 'Common' } | ForEach-Object { $_.Name }
 $built = @()
 
 foreach ($folder in $folders) {
     Write-Host "Building $folder"
-    try { $log = & "$PSScriptRoot\build.ps1" -Preset $Preset -Target "${folder}_VST3" *>&1 }
+    # Collected line by line, so a failed build still shows its errors.
+    $log = New-Object System.Collections.Generic.List[string]
+    try { & "$PSScriptRoot\build.ps1" -Preset $Preset -Target "${folder}_VST3" *>&1 | ForEach-Object { $log.Add("$_") } }
     catch {
         $log | Select-Object -Last 30 | ForEach-Object { Write-Host $_ }
         Write-Host "$folder build FAILED: $($_.Exception.Message). Nothing was installed."
@@ -101,12 +118,7 @@ Get-ChildItem $staged -Recurse -Include *.ilk | Remove-Item -Force
 
 if (Test-Writable $Destination) {
     try { Copy-Bundles $staged $Destination }
-    catch { Write-Host "FAILED: $($_.Exception.Message)" }
-} else {
-    try {
-        $arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`" -CopyFrom `"$staged`" -Destination `"$Destination`""
-        Start-Process powershell -ArgumentList $arguments -Verb RunAs -Wait -ErrorAction Stop
-    } catch { Write-Host "The admin install didn't run: $($_.Exception.Message)" }
+    catch { Write-Host "FAILED: $($_.Exception.Message) (close Cubase and CDAW, which keep loaded plugins locked)" }
 }
 
 $stale = 0
@@ -134,7 +146,7 @@ foreach ($bundle in Get-ChildItem $staged -Filter *.vst3) {
 foreach ($warning in $warnings) { Write-Host "WARNING: $warning" }
 
 if ($stale -gt 0) {
-    Write-Host "$stale plugin(s) not installed: hosts still load the older copies. Close Cubase and CDAW, run this again and approve the admin prompt."
+    Write-Host "$stale plugin(s) not installed: hosts still load the older copies. Close Cubase and CDAW and run this again; if Windows asks for admin rights, click Yes."
     exit 1
 }
 
