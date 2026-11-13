@@ -34,21 +34,58 @@ loads VST3 (or Audio Units, on macOS).
 | ![C-Chorus](docs/images/c-chorus.png) | ![C-Phaser](docs/images/c-phaser.png) |
 | ![C-Filter](docs/images/c-filter.png) | ![C-Esser](docs/images/c-esser.png) |
 
-## Install
+## Install (to use the plugins)
 
-Download the zip for your system from [Releases](https://github.com/CycyXX/cdaw-plugins/releases) and
-copy the plugins you want:
+The ready-made plugins are on the [Releases](https://github.com/CycyXX/cdaw-plugins/releases/latest) page.
+You don't need a compiler or any other tools, just the zip for your system. (To change the plugins or try code
+that isn't released yet, see [Build from source](#build-from-source-for-contributors) instead.)
 
-| System | VST3 | Audio Units |
-|---|---|---|
-| Windows | `C:\Program Files\Common Files\VST3` | |
-| macOS | `~/Library/Audio/Plug-Ins/VST3` | `~/Library/Audio/Plug-Ins/Components` |
-| Linux | `~/.vst3` | |
+Each plugin is a folder ending in `.vst3` (or `.component`, for Audio Units on macOS). Always copy the whole
+folder, not just the files inside it.
 
-Then rescan plugins in your host.
+### Windows
 
-**macOS:** the builds aren't signed yet, so macOS blocks them at first. After copying, run
-`xattr -dr com.apple.quarantine <the plugin>`.
+1. Download `cdaw-plugins-windows.zip` from the [latest release](https://github.com/CycyXX/cdaw-plugins/releases/latest).
+2. Close your host (Cubase, CDAW, …). It keeps loaded plugins locked.
+3. Right-click the zip, choose **Extract All…**, then **Extract**.
+4. In the extracted `cdaw-plugins-windows` folder, open `VST3` and select the plugins you want
+   (`C-Comp.vst3`, `C-Verb.vst3`, …). Press Ctrl+C.
+5. Open `C:\Program Files\Common Files\VST3` in File Explorer. Create a folder named `CDAW` in it, open
+   that folder, and press Ctrl+V. When Windows asks for administrator permission, click **Continue**.
+6. Start your host. Cubase finds new plugins when it starts; in other hosts, rescan plugins. They're listed
+   by name (C-Comp, C-Verb, …), and the maker is Cyrill Durrer.
+
+To update, close your host, delete the old `.vst3` folders in `C:\Program Files\Common Files\VST3\CDAW`
+and copy in the new ones. To uninstall, just delete them.
+
+### macOS
+
+1. Download `cdaw-plugins-macos.zip` from the [latest release](https://github.com/CycyXX/cdaw-plugins/releases/latest)
+   and double-click it to unzip it.
+2. Close your host.
+3. In Finder, choose **Go › Go to Folder…** and enter `~/Library/Audio/Plug-Ins/VST3`. Copy the `.vst3`
+   folders from the zip's `VST3` folder there.
+4. For Logic Pro, GarageBand and other hosts that use Audio Units, go to `~/Library/Audio/Plug-Ins/Components`
+   and copy in the `.component` folders from the zip's `AU` folder.
+5. The plugins aren't signed with an Apple certificate yet, so macOS blocks them at first. Open Terminal and run
+   these two commands, which allow the plugins you copied:
+   ```
+   xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/VST3/C-*.vst3
+   xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/Components/C-*.component
+   ```
+   (If you skipped step 4, run only the first one.)
+6. Start your host and rescan plugins. Logic checks new Audio Units when it starts.
+
+### Linux
+
+1. Download `cdaw-plugins-linux.zip` from the [latest release](https://github.com/CycyXX/cdaw-plugins/releases/latest).
+2. Unzip it and copy the plugins to `~/.vst3`:
+   ```
+   unzip cdaw-plugins-linux.zip
+   mkdir -p ~/.vst3
+   cp -r cdaw-plugins-linux/VST3/*.vst3 ~/.vst3/
+   ```
+3. Start your host and rescan plugins.
 
 **Status by system:** the plugins are developed and listened to on Windows, in Cubase and in CDAW. The
 macOS and Linux builds pass the same automated tests and [pluginval](https://github.com/Tracktion/pluginval),
@@ -57,9 +94,45 @@ but nobody has played them by ear yet. Reports are welcome.
 Your own presets are kept in `CDAW/Presets/<plugin>` in your user settings folder (`%APPDATA%` on
 Windows, `~/Library` on macOS, `~/.config` on Linux).
 
-## Build
+## Build from source (for contributors)
 
-You need CMake 3.25 or newer, a C++20 compiler and git. JUCE comes as a submodule.
+You only need this to change the plugins or to try code that isn't released yet. To just use them,
+[install a release](#install-to-use-the-plugins).
+
+### 1. Install the tools
+
+You need git, CMake 3.25 or newer and a C++20 compiler.
+
+**Windows:** open a terminal (Start, type `Terminal`) and run these. The second command downloads several GB
+and asks for administrator permission. It installs Visual Studio's C++ build tools, which include CMake and Ninja.
+
+```
+winget install Git.Git
+winget install Microsoft.VisualStudio.2022.BuildTools --override "--wait --passive --add Microsoft.VisualStudio.Workload.VCTools --add Microsoft.VisualStudio.Component.VC.CMake.Project --includeRecommended"
+```
+
+If you already have Visual Studio 2022, add the **Desktop development with C++** workload and
+**C++ CMake tools for Windows** in the Visual Studio Installer instead. Then close the terminal and open a new
+one, so it finds the new tools.
+
+**macOS:** install Apple's command line tools, then CMake (here with [Homebrew](https://brew.sh); the installer
+from [cmake.org](https://cmake.org/download/) works too):
+
+```
+xcode-select --install
+brew install cmake
+```
+
+**Linux (Debian, Ubuntu):** the compiler, CMake and git, plus the libraries JUCE needs:
+
+```
+sudo apt-get install build-essential cmake git libasound2-dev libfreetype-dev libfontconfig1-dev libx11-dev \
+  libxcomposite-dev libxcursor-dev libxext-dev libxinerama-dev libxrandr-dev libxrender-dev libglu1-mesa-dev mesa-common-dev
+```
+
+### 2. Get the code
+
+JUCE comes as a submodule, so clone with `--recurse-submodules`:
 
 ```
 git clone --recurse-submodules --shallow-submodules https://github.com/CycyXX/cdaw-plugins.git
@@ -67,23 +140,38 @@ cd cdaw-plugins
 ```
 
 On Windows, if the clone stops with "Filename too long", use a shorter folder or run
-`git config --global core.longpaths true` and clone again.
+`git config --global core.longpaths true` and clone again. If you cloned without `--recurse-submodules`, run
+`git submodule update --init --depth 1`.
+
+### 3. Build and install
+
+**Windows, with a double-click:** `Install-Plugins.bat` builds every plugin and installs them in
+`C:\Program Files\Common Files\VST3\CDAW`, the same folder the release instructions use.
+
+1. Close Cubase, CDAW and any other host. They keep loaded plugins locked.
+2. In the `cdaw-plugins` folder, double-click `Install-Plugins.bat` (or run `.\scripts\install.ps1`). The first
+   build takes about 20 minutes because each plugin compiles JUCE too; later builds are quicker.
+3. The first time, Windows asks for administrator permission right away. Click **Yes**: it lets your account
+   install in that one folder, so later runs never ask. If you click No, plugins installed for the first time go to
+   `%LOCALAPPDATA%\Programs\Common\VST3\CDAW`, for your user only.
+4. The window lists each plugin it installed and any warnings, such as not being on the latest `main`, then
+   ends with `Done.` Press a key to close it, then start your host.
+
+**Any system, by hand:** configure and build with the preset for your system, then copy the plugins to the
+folders listed under [Install](#install-to-use-the-plugins).
 
 | System | Configure and build | Plugins end up in |
 |---|---|---|
-| Windows (Visual Studio 2022 or newer, with C++) | `cmake --preset windows` then `cmake --build --preset windows` | `build/windows/VST3/*/*_artefacts/Release/VST3` |
-| macOS (Xcode command line tools) | `cmake --preset macos` then `cmake --build --preset macos -j8` | `build/macos/VST3/*/*_artefacts/Release/{VST3,AU}` |
+| Windows | `cmake --preset windows` then `cmake --build --preset windows` | `build/windows/VST3/*/*_artefacts/Release/VST3` |
+| macOS | `cmake --preset macos` then `cmake --build --preset macos -j8` | `build/macos/VST3/*/*_artefacts/Release/{VST3,AU}` |
 | Linux | `cmake --preset linux` then `cmake --build --preset linux -j8` | `build/linux/VST3/*/*_artefacts/Release/VST3` |
 
-On Linux, first install JUCE's dependencies; [the CI workflow](.github/workflows/ci.yml) lists them.
+To update later, run `git pull` and `git submodule update`, then build and install again.
+
+### 4. Test
 
 Run the tests with the `cdaw_plugins_tests` program, in `build/<preset>/tests/cdaw_plugins_tests_artefacts/`.
-
-On Windows, double-click `Install-Plugins.bat` (or run `.\scripts\install.ps1`): it builds every plugin from your checkout and installs the VST3s in
-`C:\Program Files\Common Files\VST3\CDAW`. Close your hosts first, as they keep loaded plugins locked, then rescan
-plugins in them. It warns you if what it installed isn't the latest `main`.
-
-To change something, see [CONTRIBUTING](CONTRIBUTING.md).
+Before opening a pull request, read [CONTRIBUTING](CONTRIBUTING.md).
 
 ## How the code is laid out
 
