@@ -17,7 +17,7 @@ git commit -s -m "C-Delay: fix the echo map at very short times"
 
 ## Build and test
 
-See [Build](README.md#build). Before opening a pull request, run `cdaw_plugins_tests` and try your change in a host.
+See [Build from source](README.md#build-from-source-for-contributors). Before opening a pull request, run `cdaw_plugins_tests` and try your change in a host.
 
 CI builds every plugin on Windows, macOS and Linux, runs the tests, and runs
 [pluginval](https://github.com/Tracktion/pluginval) on each VST3. A pull request that only changes docs skips
@@ -59,6 +59,19 @@ Most plugins need four things; `VST3/CDelay` and `Shared/Delay` are a good model
 
 Then add its folder to the root `CMakeLists.txt`, its identity and parameters to `IdentityTests`, a scene to
 `tests/SnapshotTests.cpp`, and a line to the README.
+
+## Publishing a release
+
+Releases are built by CI, never on someone's computer. Once `main` passes CI, tag it and push the tag:
+
+```
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+CI builds every system from scratch, runs the tests and pluginval, then publishes `cdaw-plugins-windows.zip`,
+`cdaw-plugins-macos.zip` and `cdaw-plugins-linux.zip` as a GitHub release named after the tag. If any system
+fails, nothing is published. Fix it, delete the tag (`git tag -d v0.1.0` and `git push origin :v0.1.0`) and tag again.
 
 ## Screenshots
 
