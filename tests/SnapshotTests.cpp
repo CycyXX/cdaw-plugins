@@ -254,6 +254,28 @@ namespace cdaw::test
                     const float levelDb = t < 22 ? -18.0f + 4.0f * std::sin ((float) t * 0.4f) : -44.0f + 8.0f * std::sin ((float) i * 0.13f);
                     view.tick (juce::Decibels::decibelsToGain (levelDb), s.thresholdDb, EsserEngine::getReductionDb (s, levelDb, s.thresholdDb));
                 }
+
+                // The spectrum: pinkish noise with a held "sss" (white noise) on top, through the engine.
+                engine.inputFifo->active = true;
+                engine.outputFifo->active = true;
+                juce::Random rng (5);
+                juce::AudioBuffer<float> audio (2, 4096);
+                float b0 = 0, b1 = 0, b2 = 0;
+                for (int block = 0; block < 12; ++block)
+                {
+                    for (int i = 0; i < audio.getNumSamples(); ++i)
+                    {
+                        auto white = rng.nextFloat() * 2.0f - 1.0f;
+                        b0 = 0.99765f * b0 + white * 0.0990460f;
+                        b1 = 0.96300f * b1 + white * 0.2965164f;
+                        b2 = 0.57000f * b2 + white * 1.0526913f;
+                        const float x = (b0 + b1 + b2 + white * 0.1848f) * 0.08f + (rng.nextFloat() * 2.0f - 1.0f) * 0.12f;
+                        audio.setSample (0, i, x);
+                        audio.setSample (1, i, x);
+                    }
+                    engine.process (audio, 0, audio.getNumSamples(), s);
+                    view.updateSpectrum();
+                }
                 finish (view, "c-esser");
             }
 

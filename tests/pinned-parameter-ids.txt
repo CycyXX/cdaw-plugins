@@ -51,6 +51,7 @@ C-Esser highfreq
 C-Esser mode
 C-Esser listen
 C-Esser output
+C-Esser ratio
 C-Filter filtertype
 C-Filter slope
 C-Filter frequency

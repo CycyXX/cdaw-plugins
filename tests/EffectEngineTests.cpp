@@ -376,8 +376,8 @@ namespace cdaw::test
                 };
 
                 EsserEngine::Settings defaults;
-                const auto centre = EsserEngine::getCentreHz (defaults);
-                expectWithinAbsoluteError ((float) centre, 6325.0f, 1.0f, "the band's centre is between its edges");
+                const auto centre = EsserEngine::getCentreHz (defaults, rate);
+                expect (centre > 6325.0 && centre < 7000.0, "the band's centre is between its edges: " + juce::String (centre));
 
                 expectWithinAbsoluteError (esser (centre, [] (auto& s) { s.thresholdDb = 0.0f; }), 0.0f, 0.01f, "below the threshold: untouched");
                 expectWithinAbsoluteError (esser (centre, [] (auto&) {}), -12.0f, 0.5f, "far above: turned down by the range");
@@ -403,6 +403,36 @@ namespace cdaw::test
                 expectWithinAbsoluteError ((float) EsserEngine::getResponseDb (split, 12.0f, centre, rate), -12.0f, 0.01f);
                 expectGreaterThan ((float) EsserEngine::getResponseDb (split, 12.0f, 500.0, rate), -0.5f, "split: the lows stay");
                 expectWithinAbsoluteError ((float) EsserEngine::getResponseDb (split, 0.0f, 2000.0, rate), 0.0f, 0.001f, "flat when not reducing");
+
+                // The bell keeps its width as it deepens: the band's edges get half the reduction, at any range.
+                for (float range : { 6.0f, 12.0f, 24.0f })
+                    for (double edge : { (double) split.lowHz, (double) split.highHz })
+                        expectWithinAbsoluteError ((float) EsserEngine::getResponseDb (split, range, edge, rate), -range / 2.0f, 0.05f,
+                                                   "half the range at the band's edge, " + juce::String (edge) + " Hz at " + juce::String (range) + " dB");
+
+                // So more range takes more away at the edges too, not only at the centre (far enough over the
+                // threshold that the range, not the ratio, sets the reduction).
+                const float edge12 = esser (split.lowHz, [] (auto& s) { s.thresholdDb = -60.0f; });
+                const float edge24 = esser (split.lowHz, [] (auto& s) { s.thresholdDb = -60.0f; s.rangeDb = 24.0f; });
+                expectWithinAbsoluteError (edge12, -6.0f, 0.5f, "range 12 at the low edge");
+                expectWithinAbsoluteError (edge24, -12.0f, 0.5f, "range 24 at the low edge");
+
+                // The ratio: how much it reduces for how far the band is over the threshold.
+                EsserEngine::Settings wide;
+                wide.rangeDb = 24.0f;
+                wide.ratio = 2.0f;
+                expectWithinAbsoluteError (EsserEngine::getReductionDb (wide, -12.0f, -24.0f), 6.0f, 0.01f, "2:1, 12 dB over");
+                wide.ratio = 4.0f;
+                expectWithinAbsoluteError (EsserEngine::getReductionDb (wide, -12.0f, -24.0f), 9.0f, 0.01f, "4:1, 12 dB over");
+                wide.ratio = EsserEngine::limitRatio;
+                expectWithinAbsoluteError (EsserEngine::getReductionDb (wide, -12.0f, -24.0f), 12.0f, 0.01f, "limit: down to the threshold");
+                wide.rangeDb = 8.0f;
+                expectWithinAbsoluteError (EsserEngine::getReductionDb (wide, -12.0f, -24.0f), 8.0f, 0.01f, "never more than the range");
+
+                const auto& ratioSpec = EsserParameters::get (EsserParameters::ratio);
+                expectEquals (ratioSpec.toText (EsserEngine::limitRatio), juce::String ("Limit"));
+                expectEquals (ratioSpec.fromText ("Limit"), EsserEngine::limitRatio);
+                expectEquals (ratioSpec.defaultValue, 4.0f, "old projects, without a ratio, keep 4:1");
             }
 
             beginTest ("The filter maths shared by the crossovers and cuts: peak, shelf and steep cuts");
