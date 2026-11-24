@@ -1,5 +1,6 @@
 #include "EsserView.h"
 #include "../LookAndFeel/Palette.h"
+#include "../UI/SpectrumAnalyser.h"
 
 namespace cdaw
 {
@@ -8,8 +9,10 @@ namespace cdaw
         using P = EsserParameters::ID;
         constexpr float minDb = -27.0f, maxDb = 6.0f;
         constexpr float levelMinDb = -60.0f, levelMaxDb = 0.0f;
+        constexpr float spectrumMinDb = -100.0f, spectrumMaxDb = 0.0f;
 
         const juce::Colour bandColour { 0xff4fd6c8 }, reductionColour { 0xffff7a59 }, thresholdColour { 0xfff2b134 };
+        const juce::Colour inputColour { 0xffb0b8c4 }, outputColour { 0xff6f8fb0 };
 
         EsserEngine::Settings settingsOf (EffectModel& m)
         {
@@ -21,7 +24,51 @@ namespace cdaw
     class EsserView::BandView : public juce::Component
     {
     public:
-        BandView (EffectModel& m, EsserEngine& e) : model (m), engine (e) { setOpaque (true); }
+        BandView (EffectModel& m, EsserEngine& e)
+            : model (m), engine (e), input (e.inputFifo), output (e.outputFifo)
+        {
+            setOpaque (true);
+        }
+
+        void setActive (bool active)
+        {
+            engine.inputFifo->active = active;
+            engine.outputFifo->active = active;
+        }
+
+        void updateSpectrum()
+        {
+            const bool in = input.update (columnHz, engine.getSampleRate());
+            if (output.update (columnHz, engine.getSampleRate()) || in)
+                repaint();
+        }
+
+        void resized() override
+        {
+            auto p = plotArea();
+            columnHz.resize ((size_t) juce::jmax (1, (int) p.getWidth()));
+            for (size_t c = 0; c < columnHz.size(); ++c)
+                columnHz[c] = axis.toHz (p.getX() + (float) c + 0.5f, p);
+        }
+
+        float spectrumToY (float db, juce::Rectangle<float> p) const
+        {
+            return juce::jmap (juce::jlimit (spectrumMinDb, spectrumMaxDb, db), spectrumMinDb, spectrumMaxDb, p.getBottom(), p.getY());
+        }
+
+        juce::Path spectrumPath (const SpectrumAnalyser& a, juce::Rectangle<float> p, bool closed) const
+        {
+            juce::Path path;
+            if (closed) path.startNewSubPath (p.getX(), p.getBottom());
+            for (size_t c = 0; c < a.levels.size(); ++c)
+            {
+                const auto y = spectrumToY (a.levels[c], p);
+                if (c == 0 && ! closed) path.startNewSubPath (p.getX(), y);
+                else                    path.lineTo (p.getX() + (float) c, y);
+            }
+            if (closed) { path.lineTo (p.getRight(), p.getBottom()); path.closeSubPath(); }
+            return path;
+        }
 
         juce::Rectangle<float> plotArea() const
         {
@@ -78,6 +125,22 @@ namespace cdaw
             g.saveState();
             g.reduceClipRegion (p.toNearestInt());
 
+            // The spectrum behind the curves: what comes out filled, what went in as a line above it, so
+            // what the de-esser takes away is the gap between them.
+            if (! output.levels.empty())
+            {
+                g.setGradientFill (juce::ColourGradient::vertical (outputColour.withAlpha (0.35f), p.getY(), outputColour.withAlpha (0.05f), p.getBottom()));
+                g.fillPath (spectrumPath (output, p, true));
+                g.setColour (outputColour.brighter (0.4f).withAlpha (0.6f));
+                g.strokePath (spectrumPath (output, p, false), juce::PathStrokeType (1.0f));
+            }
+
+            if (! input.levels.empty())
+            {
+                g.setColour (inputColour.withAlpha (0.45f));
+                g.strokePath (spectrumPath (input, p, false), juce::PathStrokeType (1.0f));
+            }
+
             auto curveFor = [&] (float db)
             {
                 juce::Path curve;
@@ -110,6 +173,18 @@ namespace cdaw
             g.strokePath (now, juce::PathStrokeType (2.0f));
 
             g.restoreState();
+
+            g.setFont (juce::FontOptions (9.5f));
+            auto legend = getLocalBounds().toFloat().reduced (10.0f, 7.0f).removeFromTop (12.0f).withTrimmedLeft (60.0f);
+            auto item = [&] (const juce::String& text, juce::Colour c)
+            {
+                g.setColour (c);
+                g.fillRect (legend.removeFromLeft (10.0f).reduced (0.0f, 4.0f));
+                g.setColour (Palette::textDim);
+                g.drawText (text, legend.removeFromLeft (60.0f).withTrimmedLeft (4.0f), juce::Justification::centredLeft);
+            };
+            item ("input", inputColour);
+            item ("output", outputColour);
 
             if (s.listen != EsserEngine::Listen::off)
             {
@@ -205,6 +280,8 @@ namespace cdaw
         EffectModel& model;
         EsserEngine& engine;
         EffectUI::FrequencyAxis axis;
+        SpectrumAnalyser input, output;
+        std::vector<double> columnHz;
         float reductionDb = 0.0f;
         double dragStartLow = 0.0, dragStartHigh = 0.0;
         int hover = 0, dragging = 0;
@@ -340,10 +417,11 @@ namespace cdaw
         add (P::lowfreq, "Low", bandColour, 5000.0f);
         add (P::highfreq, "High", bandColour, 9000.0f);
         add (P::range, "Range", reductionColour, 0.0f);
+        add (P::ratio, "Ratio", reductionColour, 6.0f);
         add (P::release, "Release", reductionColour, 60.0f);
         add (P::output, "Output", Palette::marker, 0.0f);
 
-        groups = { { "DETECTION", 0, 3, {} }, { "REDUCTION", 3, 2, {} }, { "OUTPUT", 5, 1, {} } };
+        groups = { { "DETECTION", 0, 3, {} }, { "REDUCTION", 3, 3, {} }, { "OUTPUT", 6, 1, {} } };
 
         setSize (defaultWidth, defaultHeight);
         startTimerHz (60);
@@ -352,6 +430,17 @@ namespace cdaw
     EsserView::~EsserView()
     {
         stopTimer();
+        band->setActive (false);
+    }
+
+    void EsserView::visibilityChanged()
+    {
+        band->setActive (isShowing());
+    }
+
+    void EsserView::updateSpectrum()
+    {
+        band->updateSpectrum();
     }
 
     void EsserView::tick (float bandLevel, float thresholdDb, float reductionDb)
@@ -366,6 +455,12 @@ namespace cdaw
               engine.reduction.take());
         engine.inputPeak.take();
         engine.outputPeak.take();
+
+        if (isShowing() && (frame++ & 1) == 0)
+        {
+            band->setActive (true);
+            updateSpectrum();
+        }
 
         for (auto* k : knobs)
             k->refresh();
@@ -385,7 +480,7 @@ namespace cdaw
         auto text = [this] (P id) { return model.parameter (id)->getCurrentText(); };
         auto summary = text (P::lowfreq) + " - " + text (P::highfreq) + "  -  "
                        + (model.isOn (P::autoThreshold) ? juce::String ("auto threshold") : "threshold " + text (P::threshold))
-                       + "  -  up to " + text (P::range);
+                       + "  -  " + text (P::ratio) + ", up to " + text (P::range);
         EffectUI::drawHeader (g, getLocalBounds().removeFromTop (EffectUI::headerHeight).withTrimmedRight (430), "C-ESSER", summary);
         EffectUI::paintKnobGroups (g, groups);
     }

@@ -2,22 +2,26 @@
 
 #include <juce_audio_basics/juce_audio_basics.h>
 #include "PeakMeter.h"
+#include "AnalyserFifo.h"
 #include <atomic>
+#include <memory>
 
 namespace cdaw
 {
     /** C-Esser's DSP, a de-esser: the sibilant band (low to high frequency) of the summed channels
         drives a fast peak follower; above the threshold (fixed, or following the programme's level
-        with auto) it reduces by up to `range` dB, at 4:1 with a soft knee. Split mode applies the
-        reduction as a bell over that band only (unchanged everywhere when nothing is reduced),
-        wideband mode to the whole signal. Listen plays the band, or what is taken away. */
+        with auto) it reduces at `ratio` with a soft knee, by up to `range` dB. Split mode applies the
+        reduction as a bell over that band only (unchanged everywhere when nothing is reduced), which
+        keeps its width at every depth: the band's edges always get half the reduction in dB.
+        Wideband mode reduces the whole signal. Listen plays the band, or what is taken away. */
     class EsserEngine
     {
     public:
         enum class Mode { split, wideband };
         enum class Listen { off, band, removed };
 
-        static constexpr float ratio = 4.0f, kneeDb = 6.0f;
+        static constexpr float kneeDb = 6.0f;
+        static constexpr float limitRatio = 20.0f;      // and above: brings the band down to the threshold
         static constexpr float autoOffsetDb = -6.0f;    // auto: the threshold sits this far below the programme's level
         static constexpr float autoFloorDb = -50.0f;
 
@@ -26,6 +30,7 @@ namespace cdaw
             float thresholdDb = -24.0f;
             bool autoThreshold = false;
             float rangeDb = 12.0f;          // the most it reduces
+            float ratio = 4.0f;             // limitRatio or more: limiting
             float releaseMs = 100.0f;
             float lowHz = 4000.0f, highHz = 10000.0f;
             Mode mode = Mode::split;
@@ -47,20 +52,28 @@ namespace cdaw
         /** Response (dB) at `hz` while reducing by `reductionDb` (without the output gain). */
         static double getResponseDb (const Settings&, float reductionDb, double hz, double sampleRate);
 
-        /** The centre and bandwidth (Q) of the band. */
-        static double getCentreHz (const Settings&);
-        static double getQ (const Settings&);
+        /** The bell's damping while reducing to `gain`, from its damping `k` (1 / Q) at rest: it widens as it
+            deepens, so the band's edges always get half the reduction in dB. */
+        static double getBellDamping (double k, double gain);
+
+        /** The bell's centre and bandwidth (Q), set so that its edges land on the band's edges at this sample rate. */
+        static double getCentreHz (const Settings&, double sampleRate);
+        static double getQ (const Settings&, double sampleRate);
 
         PeakMeter inputPeak, outputPeak;
         PeakMeter reduction;                            // dB, the most since the editor looked
         PeakMeter bandLevel;                            // gain, the detector's peak
         std::atomic<float> thresholdNow { -24.0f };     // dB: the threshold in use (moves with auto)
 
+        /** The input and output, for the editor's spectrum. */
+        std::shared_ptr<AnalyserFifo> inputFifo = std::make_shared<AnalyserFifo>(), outputFifo = std::make_shared<AnalyserFifo>();
+
     private:
         /** A TPT state variable filter (Zavalishin): low, band and high pass from one state. */
         struct Svf
         {
             void set (double hz, double q, double sampleRate);
+            void setDamping (double newK)   { k = newK; a = 1.0 / (1.0 + g * (g + k)); }
             void reset()                    { s1 = s2 = 0.0; }
             struct Out { double low, band, high; };
             Out tick (double x)
@@ -81,6 +94,7 @@ namespace cdaw
         double rate = 48000.0;
         Svf bell[2], listenHigh[2], listenLow[2];   // per channel: the bell's band pass, the listened band
         Svf detectHigh, detectLow;                  // on the sum: high pass at low, low pass at high
+        double bellK = 1.0;                         // the bell's damping (1 / Q) when not reducing
         float lastLow = 0.0f, lastHigh = 0.0f, lastOutputGain = 1.0f;
         double envelope = 0.0, programme = 0.0;     // detector peak (gain), programme mean square
         double attackCoeff = 0.0, programmeCoeff = 0.0;

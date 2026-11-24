@@ -304,6 +304,11 @@ namespace cdaw::test::dsp
         wide.mode = E::Mode::wideband;
         list.push_back (make<E> ("esser_wideband", wide));
 
+        auto limit = base;
+        limit.ratio = E::limitRatio;
+        limit.rangeDb = 24.0f;
+        list.push_back (make<E> ("esser_split_limit", limit));
+
         auto band = base;
         band.listen = E::Listen::band;
         list.push_back (make<E> ("esser_listen_band_change", base, band));

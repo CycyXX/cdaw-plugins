@@ -8,6 +8,16 @@ namespace cdaw::EsserParameters
 
         float parseDb (const juce::String& s)       { return s.getFloatValue(); }
 
+        juce::String ratioText (float v)
+        {
+            return v >= EsserEngine::limitRatio ? juce::String ("Limit") : juce::String (v, 1) + ":1";
+        }
+
+        float parseRatio (const juce::String& s)
+        {
+            return s.trim().startsWithIgnoreCase ("lim") ? EsserEngine::limitRatio : s.getFloatValue();
+        }
+
         ParameterSpecs makeSpecs()
         {
             const juce::StringArray modes { "Split", "Wideband" };
@@ -24,6 +34,7 @@ namespace cdaw::EsserParameters
             specs[mode]          = { "mode",      "Mode",      0.0f,    1.0f,     0.0f,    0.0f,    1.0f, choice (modes), parseChoice (modes) };
             specs[listen]        = { "listen",    "Listen",    0.0f,    2.0f,     0.0f,    0.0f,    1.0f, choice (listens), parseChoice (listens) };
             specs[output]        = { "output",    "Output",    -12.0f,  12.0f,    0.0f,    0.0f,    0.0f, db, parseDb };
+            specs[ratio]         = { "ratio",     "Ratio",     2.0f,    EsserEngine::limitRatio, 4.0f, 6.0f, 0.0f, ratioText, parseRatio };
             return specs;
         }
     }
@@ -45,6 +56,7 @@ namespace cdaw::EsserParameters
         s.thresholdDb = valueOf (threshold);
         s.autoThreshold = valueOf (autoThreshold) >= 0.5f;
         s.rangeDb = valueOf (range);
+        s.ratio = valueOf (ratio);
         s.releaseMs = valueOf (release);
         s.lowHz = valueOf (lowfreq);
         s.highHz = valueOf (highfreq);

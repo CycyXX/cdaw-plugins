@@ -21,11 +21,26 @@ namespace cdaw
             const double low = juce::jlimit (500.0, 16000.0, (double) s.lowHz);
             return { low, juce::jlimit (low * 1.2, 22000.0, (double) s.highHz) };
         }
+
+        /** A frequency on the bilinear transform's prewarped scale, where the filters are designed. */
+        double prewarp (double hz, double sampleRate)
+        {
+            return std::tan (pi * juce::jlimit (10.0, sampleRate * 0.49, hz) / sampleRate);
+        }
+
+        /** The bell's centre and bandwidth on the prewarped scale, so that its edges land on the band's edges
+            at any sample rate. */
+        std::pair<double, double> bellOf (const EsserEngine::Settings& s, double sampleRate)
+        {
+            auto [low, high] = edgesOf (s);
+            const double l = prewarp (low, sampleRate), h = prewarp (high, sampleRate), centre = std::sqrt (l * h);
+            return { centre, h > l ? centre / (h - l) : 8.0 };
+        }
     }
 
     void EsserEngine::Svf::set (double hz, double q, double sampleRate)
     {
-        g = std::tan (pi * juce::jlimit (10.0, sampleRate * 0.49, hz) / sampleRate);
+        g = prewarp (hz, sampleRate);
         k = 1.0 / q;
         a = 1.0 / (1.0 + g * (g + k));
     }
@@ -33,6 +48,8 @@ namespace cdaw
     void EsserEngine::prepare (double sampleRate, int)
     {
         rate = sampleRate > 0.0 ? sampleRate : 48000.0;
+        inputFifo->sampleRate = rate;
+        outputFifo->sampleRate = rate;
         attackCoeff = coefficientFor (attackMs, rate);
         programmeCoeff = coefficientFor (programmeMs, rate);
         lastLow = lastHigh = 0.0f;
@@ -50,22 +67,20 @@ namespace cdaw
         envelope = programme = 0.0;
     }
 
-    double EsserEngine::getCentreHz (const Settings& s)
+    double EsserEngine::getCentreHz (const Settings& s, double sampleRate)
     {
-        auto [low, high] = edgesOf (s);
-        return std::sqrt (low * high);
+        return std::atan (bellOf (s, sampleRate).first) * sampleRate / pi;
     }
 
-    double EsserEngine::getQ (const Settings& s)
+    double EsserEngine::getQ (const Settings& s, double sampleRate)
     {
-        auto [low, high] = edgesOf (s);
-        return juce::jlimit (0.3, 8.0, std::sqrt (low * high) / (high - low));
+        return juce::jlimit (0.3, 8.0, bellOf (s, sampleRate).second);
     }
 
     float EsserEngine::getReductionDb (const Settings& s, float levelDb, float thresholdDb)
     {
         const float over = levelDb - thresholdDb;
-        const float slope = 1.0f - 1.0f / ratio;
+        const float slope = s.ratio >= limitRatio ? 1.0f : 1.0f - 1.0f / juce::jmax (1.0f, s.ratio);
         float reductionDb = 0.0f;
 
         if (over >= 0.5f * kneeDb)
@@ -82,13 +97,20 @@ namespace cdaw
             return -reductionDb;
 
         // The bell: x - (1 - gain) * a constant-peak band pass, on the bilinear (prewarped) frequency scale.
-        const double warp = std::tan (pi * juce::jmin (hz, sampleRate * 0.49) / sampleRate)
-                            / std::tan (pi * juce::jmin (getCentreHz (s), sampleRate * 0.49) / sampleRate);
+        const double warp = std::tan (pi * juce::jmin (hz, sampleRate * 0.49) / sampleRate) / bellOf (s, sampleRate).first;
         const std::complex<double> j (0.0, warp);
-        const double k = 1.0 / getQ (s);
-        const auto band = k * j / (j * j + k * j + 1.0);
         const double gain = juce::Decibels::decibelsToGain ((double) -reductionDb);
+        const double k = getBellDamping (1.0 / getQ (s, sampleRate), gain);
+        const auto band = k * j / (j * j + k * j + 1.0);
         return 20.0 * std::log10 (juce::jmax (1.0e-6, std::abs (1.0 - (1.0 - gain) * band)));
+    }
+
+    double EsserEngine::getBellDamping (double k, double gain)
+    {
+        // x - (1 - gain) * k' * band pass, with k' = k / sqrt (gain), is (s^2 + k sqrt (gain) s + 1) / (s^2 + k / sqrt (gain) s + 1):
+        // half the cut (in dB) at the band pass's -3 dB points, the band's edges, however deep it goes. With k' = k it
+        // narrows as it deepens, towards a notch at the centre, so more range hardly took more away.
+        return gain >= 1.0 ? k : k / std::sqrt (juce::jmax (1.0e-4, gain));
     }
 
     void EsserEngine::updateFilters (const Settings& s)
@@ -99,10 +121,11 @@ namespace cdaw
         lastLow = s.lowHz;
         lastHigh = s.highHz;
         auto [low, high] = edgesOf (s);
+        bellK = 1.0 / getQ (s, rate);
 
         for (int ch = 0; ch < 2; ++ch)
         {
-            bell[ch].set (getCentreHz (s), getQ (s), rate);
+            bell[ch].set (getCentreHz (s, rate), getQ (s, rate), rate);
             listenHigh[ch].set (low, butterworthQ, rate);
             listenLow[ch].set (high, butterworthQ, rate);
         }
@@ -119,8 +142,10 @@ namespace cdaw
 
         updateFilters (s);
 
+        juce::AudioBuffer<float> view (buffer.getArrayOfWritePointers(), numChannels, start, n);
+        inputFifo->push (view);
+
         const double releaseCoeff = coefficientFor (juce::jlimit (1.0, 2000.0, (double) s.releaseMs), rate);
-        const double bellK = bell[0].k;
         const float targetOutput = juce::Decibels::decibelsToGain (s.outputDb);
         const float outputStep = (targetOutput - lastOutputGain) / (float) n;
 
@@ -149,13 +174,17 @@ namespace cdaw
             const float reductionDb = getReductionDb (s, juce::Decibels::gainToDecibels ((float) envelope, -120.0f), thresholdDb);
             const double gain = juce::exactlyEqual (reductionDb, 0.0f) ? 1.0 : juce::Decibels::decibelsToGain ((double) -reductionDb);
             mostReduction = juce::jmax (mostReduction, reductionDb);
+            const double damping = getBellDamping (bellK, gain);
 
             lastOutputGain += outputStep;
 
             for (int ch = 0; ch < numChannels; ++ch)
             {
                 const double x = data[ch][i];
-                const double bellBand = bellK * bell[ch].tick (x).band;
+                if (! juce::exactlyEqual (bell[ch].k, damping))
+                    bell[ch].setDamping (damping);
+
+                const double bellBand = damping * bell[ch].tick (x).band;
                 const double processed = s.mode == Mode::split ? x - (1.0 - gain) * bellBand : x * gain;
                 const double heard = listenLow[ch].tick (listenHigh[ch].tick (x).high).low;
 
@@ -174,5 +203,6 @@ namespace cdaw
         reduction.push (mostReduction);
         bandLevel.push ((float) mostLevel);
         thresholdNow.store (thresholdDb, std::memory_order_relaxed);
+        outputFifo->push (view);
     }
 }

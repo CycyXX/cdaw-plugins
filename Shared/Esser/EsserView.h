@@ -7,8 +7,9 @@
 namespace cdaw
 {
     /** C-Esser's editor, shared by both builds:
-        - band: the sibilant band shaded, with handles for its low and high edge (drag the middle
-          to move both); what the de-esser does to each frequency right now, and at full range
+        - band: the input and output spectrum behind the sibilant band, shaded, with handles for its
+          low and high edge (drag the middle to move both); what the de-esser does to each frequency
+          right now, and at full range
         - activity: the band's level scrolling past against the threshold (which moves with auto),
           the reduction hanging from the top, and a reduction meter
         - knobs grouped by Detection, Reduction and Output; mode, listen and auto in the header. */
@@ -21,9 +22,13 @@ namespace cdaw
 
         void paint (juce::Graphics&) override;
         void resized() override;
+        void visibilityChanged() override;
 
         /** One frame of meter values: band level (gain), threshold (dB) and reduction (dB). Scrolls the activity. */
         void tick (float bandLevel, float thresholdDb, float reductionDb);
+
+        /** Pulls new audio from the engine's analyser feeds into the spectrum. */
+        void updateSpectrum();
 
         static constexpr int defaultWidth = 940, defaultHeight = 620, minimumWidth = 780, minimumHeight = 540;
 
@@ -41,5 +46,6 @@ namespace cdaw
         std::vector<EffectUI::KnobGroup> groups;
         ChoiceButtons modeButtons, listenButtons;
         ParamToggle autoButton;
+        int frame = 0;
     };
 }
